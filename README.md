@@ -9,7 +9,7 @@ python -m pip install pyyaml numpy scipy
 python run_all.py example_system.yaml --system ex1 --exp-id 1
 ```
 
-Steps: 1 publisher RTA (ST WGs first) → 2 network generator → 3 mapping → 4 `TSN_HeuristicScheduler.exe Experiment1\ STHS_input.txt 4` → 5 AVB input generator → 6 `AVB_analysis.exe Experiment1\` → 7 subscriber RTA with the network results → 8 end-to-end. Everything ends up in `Experiment1/`, the final numbers in `Experiment1/results.json`. At the end, the utilization of every directed link is printed and saved to `link_utilization.csv` (per link, split ST / AVB_A / AVB_B / BE) and `link_utilization_messages.csv` (per link and message): sum of length / period over the messages on the link, divided by the bandwidth. `python link_report.py example_system.yaml --system ex1` gives the same report without running the tools.
+Steps: 1 publisher RTA (ST WGs first) → 2 network generator → 3 mapping → 4 `TSN_HeuristicScheduler.exe Experiment1\ STHS_input.txt 4` → 5 AVB input generator → 6 `AVB_analysis.exe Experiment1\` → 7 subscriber RTA with the network results → 8 end-to-end. Everything ends up in `Experiment1/`, the final numbers in `Experiment1/results.json`. At the end, the utilization of every directed link is printed and saved to `link_utilization.csv` (per link, split ST / AVB_A / AVB_B / BE; without step 5, AVB messages are counted as `AVB`) and `link_utilization_messages.csv` (per link and message): sum of length / period over the messages on the link, divided by the bandwidth. `python link_report.py example_system.yaml --system ex1` gives the same report without running the tools.
 
 Options: `--num-queues` (default 4), `--with-be`, `--tools-dir` (exes elsewhere), `--work-dir`, `--folder-arg` (default `Experiment{id}\`), `--reuse-network-results` (skip the exes, reuse their outputs), `--instances`. On macOS/Linux the exes are started through `wine`.
 
@@ -42,7 +42,7 @@ python analyse.py example_system.yaml --json results.json
 python network_generator.py example_system.yaml --system ex1 --exp-id 1 [--out DIR] [--map]
 python mapping_tool.py --exp-id 1 [--dir DIR]                           # or --map above
 #   ... run TSN_HeuristicScheduler.exe on STHS_input.txt -> Schedule.txt ...
-python avb_input_generator.py --exp-id 1 [--dir DIR] [--with-be] [--legacy-avb-classes]
+python avb_input_generator.py --exp-id 1 [--dir DIR] [--with-be]
 python publisher_rta.py example_system.yaml                             # publishers only
 python -m pytest -q
 ```
@@ -56,7 +56,7 @@ python generate_system.py scenario.yaml --out generated.yaml [--seed N]
 python run_all.py generated.yaml --system gen --exp-id 1
 ```
 
-The scenario gives the topology (links and which end nodes are publishers, subscribers and best-effort sources: the same for every seed; or a generated line of switches, 1 = star, with its own `topology.seed`) and counts and ranges: WGs per publisher, periods, variables and DSMs per WG, data types, ST and AVB A shares (placeholders), best-effort flows and network settings. WCET = base + slope × size, with base and slope drawn per task from ranges (rough estimates, scaled from Kirchberger, TU Wien 2022). Priorities are global: every ST WG above every AVB WG, then shorter period first; rho = rank. A draw is kept only if it passes the loader's checks (MTU, link load) and every publisher and subscriber has ΣW/T below `limits.max_cpu_utilization`; otherwise the next draw is tried. Same scenario + seed = same system.
+The scenario gives the topology (links and which end nodes are publishers, subscribers and best-effort sources: the same for every seed; or a generated line of switches, 1 = star, with its own `topology.seed`) and counts and ranges: WGs per publisher, periods, variables and DSMs per WG, data types, ST and AVB A shares (placeholders), best-effort flows and network settings. WCET = base + slope × size, with base and slope drawn per task from ranges (rough estimates, scaled from Kirchberger, TU Wien 2022); ψ (collection) and ψ' (dispatch) have one value per data type for the whole system, or are given per type with `per_type`. Priorities are global: every ST WG above every AVB WG, then shorter period first; rho = rank. A draw is kept only if it passes the loader's checks (MTU, link load) and every publisher and subscriber has ΣW/T below `limits.max_cpu_utilization`; otherwise the next draw is tried. Same scenario + seed = same system.
 
 ## Conventions
 
@@ -69,7 +69,7 @@ The scenario gives the topology (links and which end nodes are publishers, subsc
 ## Network
 
 - `links`, `full_duplex`, `bandwidth`, `max_link_load` as in the original generator (end nodes positive, switches negative); `epsilon` is the switching-fabric delay per switch.
-- Per message: `hard_real_time` (true = ST, false = AVB), `avb_class` (A or B, required for AVB, not allowed for ST), `R_max` (parameter from the network analysis), optional `path` (node list). Without `path`, the shortest route is used (first on ties).
+- Per message: `hard_real_time` (true = ST, false = AVB; the AVB class A/B is not in the YAML, it is assigned in step 5), `R_max` (parameter from the network analysis), optional `path` (node list). Without `path`, the shortest route is used (first on ties).
 - h = links on the path; C_N = length / bandwidth; AVB: R_min = h·C_N + (h−1)·ε, J' = R_max − R_min; ST: J' = 0.
 - `best_effort`: background flows that are not PubSub (`name`, `source`, `destination` end nodes, `length` in bytes, `period` or `min_inter_arr_time`, optional `path`). They go into `Messages.mat` with deadline 0 and count in the link load, but not in the timing analysis.
 - Each directed link may appear only once (the mapping tool looks links up by their row in `architecture`).
@@ -99,9 +99,9 @@ The scenario gives the topology (links and which end nodes are publishers, subsc
 ### AVB analysis input (same folder)
 
 - ST: one block per TT message, link and schedule instance, from `Schedule.txt` (columns: message index 0-based, link row, -, start ns, end ns); period = P·n where n = ceil(largest end on the link / 1000 / P); offset = start / 1000.
-- AVB: priority `ClassA`/`ClassB` from `avb_class` in the YAML (read from `message_map.csv`). `--legacy-avb-classes` restores the original odd/even rule.
+- AVB: priority `ClassA`/`ClassB` assigned here with the original rule: odd positions A, even positions B (function `avb_priorities`). The class used is recorded in `AVB_Input_map.csv` and, after step 7, shown in the tables (before that: `AVB`).
 - BE: only with `--with-be` (priority NRT); the original had this block commented out.
-- Verified against `AVB_analysis_input_generator.m` in Octave: byte-identical `AVB_Input.txt` (legacy classes), also with the BE block enabled.
+- Verified against `AVB_analysis_input_generator.m` in Octave: byte-identical `AVB_Input.txt`, also with the BE block enabled; with the real tool outputs, identical to the `AVB_Input.txt` the AVB analysis used.
 
 ## Output
 

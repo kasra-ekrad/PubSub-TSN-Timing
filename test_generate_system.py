@@ -127,3 +127,47 @@ def test_bad_scenarios(sc):
     s["topology"]["subscribers"] = [3, 9]
     with pytest.raises(gen.ScenarioError, match="not in topology.links"):
         gen.generate(s)
+
+
+def _psi_by_type(d):
+    wgs = {w["writer_group_id"]: w for p in d["publishers"] for w in p["writer_groups"]}
+    pub, sub = {}, {}
+    for w in wgs.values():
+        for t, x in zip(w["types"], w["psi"]):
+            pub.setdefault(t, set()).add(x)
+    for s in d["subscribers"]:
+        for tx in s["transactions"]:
+            for t, x in zip(wgs[tx["writer_group_id"]]["types"], tx["psi"]):
+                sub.setdefault(t, set()).add(x)
+    return pub, sub
+
+
+@pytest.mark.parametrize("seed", range(10))
+def test_psi_is_one_value_per_type(sc, seed):
+    import uadp
+    pub, sub = _psi_by_type(gen.generate(sc, seed)[0])
+    for table in (pub, sub):
+        assert all(len(v) == 1 for v in table.values())          # every Float costs the same, ...
+        by_size = sorted(table, key=uadp.field_size)
+        costs = [next(iter(table[t])) for t in by_size]
+        assert costs == sorted(costs)                             # larger types never cost less
+
+
+def test_psi_per_type_table(sc):
+    s = copy.deepcopy(sc)
+    s["wcet"]["publisher"]["collect"] = {"per_type": {"Float": 0.2, "Double": 0.25, "Int32": 0.2,
+                                                      "Int16": 0.15, "Boolean": 0.12}}
+    pub, _ = _psi_by_type(gen.generate(s)[0])
+    assert pub["Double"] == {0.25} and pub["Boolean"] == {0.12}
+    del s["wcet"]["publisher"]["collect"]["per_type"]["Boolean"]
+    with pytest.raises(gen.ScenarioError, match="no value for Boolean"):
+        gen.generate(s)
+
+
+def test_mtu_is_enforced_while_generating(sc):
+    s = copy.deepcopy(sc)
+    s["types"] = {"String(400)": 1.0}               # 404 bytes per field: 4 fields exceed 1472
+    s["variables_per_wg"] = [5, 5]
+    s["limits"]["attempts"] = 5
+    with pytest.raises(gen.ScenarioError, match="MTU exceeded: 5"):
+        gen.generate(s)

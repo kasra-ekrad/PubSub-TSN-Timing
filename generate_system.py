@@ -8,7 +8,8 @@ What is drawn (all from the scenario's seed, so the result is reproducible):
                topology.seed, with nodes connected by `placement`
   WGs          per publisher a number of WGs; per WG a period, v variables with
                types, Delta DSMs (variables split over them)
-  WCETs        base + slope * size, base and slope drawn per task from ranges
+  WCETs        base + slope * size, base and slope drawn per task from ranges;
+               psi and psi' are one value per data type for the whole system
   classes      round(st_share * WGs) ST WGs, picked with weight T^-bias; the others
                AVB (A or B is assigned later, in step 5)
   priorities   global: all ST WGs above all AVB WGs, then shorter period first,
@@ -73,6 +74,20 @@ def _cost(rng: random.Random, spec: dict, size: float, slope_key: str | None) ->
     base = _frange(rng, spec["base"])
     slope = _frange(rng, spec[slope_key]) if slope_key else 0.0
     return _us(base + slope * size)
+
+
+def type_costs(rng: random.Random, spec: dict, types: list[str], what: str) -> dict[str, float]:
+    """One cost per data type, the same for every variable of that type in the system:
+    the values given in `per_type`, or base + per_byte * size(type) with base and
+    per_byte drawn once for the system (so larger types never cost less)."""
+    if "per_type" in spec:
+        table = spec["per_type"]
+        missing = [t for t in types if t not in table]
+        if missing:
+            raise ScenarioError(f"wcet.{what}.per_type: no value for {', '.join(missing)}")
+        return {t: _us(float(table[t])) for t in types}
+    base, slope = _frange(rng, spec["base"]), _frange(rng, spec["per_byte"])   # once per system
+    return {t: _us(base + slope * uadp.field_size(t)) for t in types}
 
 
 def _weighted_sample(rng: random.Random, items: list, weights: list[float], k: int) -> list:
@@ -160,7 +175,7 @@ def build_topology(sc: dict, seed: int) -> Topology:
     return Topology(links, pub_nodes, sub_nodes, be_nodes)
 
 
-def draw(rng: random.Random, sc: dict, topo: Topology) -> dict:
+def draw(rng: random.Random, sc: dict, topo: Topology, psi_pub: dict, psi_sub: dict) -> dict:
     be = sc["best_effort"]
     if be["flows"] and not topo.be_nodes:
         raise ScenarioError("best_effort.flows needs at least one best_effort source in the topology")
@@ -189,7 +204,7 @@ def draw(rng: random.Random, sc: dict, topo: Topology) -> dict:
                 "p": p, "n": n, "writer_group_id": wgid,
                 "T": rng.choices(periods, weights=pweights)[0] if pweights else rng.choice(periods),
                 "types": tps, "groups": groups, "nm": nm,
-                "psi": [_cost(rng, W["collect"], uadp.field_size(t), "per_byte") for t in tps],
+                "psi": [psi_pub[t] for t in tps],                     # same per type everywhere
                 "phi": [_cost(rng, W["dsw"], g, "per_field") for g in groups],
                 "C3": _cost(rng, W["wg"], delta, "per_dsm"),
                 "C4": _cost(rng, W["transport"], nm, "per_byte"),
@@ -230,7 +245,7 @@ def draw(rng: random.Random, sc: dict, topo: Topology) -> dict:
                 "C1": _cost(rng, Ws["reception"], w["nm"], "per_byte"),
                 "C2": _cost(rng, Ws["filter"], 0, None),
                 "phi": [_cost(rng, Ws["decode"], g, "per_field") for g in w["groups"]],
-                "psi": [_cost(rng, Ws["dispatch"], uadp.field_size(t), "per_byte") for t in w["types"]],
+                "psi": [psi_sub[t] for t in w["types"]],
             })
         subscribers.append({"k": k, "node": node, "transactions": txs})
 
@@ -268,11 +283,15 @@ def generate(sc: dict, seed: int | None = None):
     seed = sc["seed"] if seed is None else seed
     rng = random.Random(seed)
     topo = build_topology(sc, seed)
+    # psi (collection) and psi' (dispatch): one value per data type for the whole system
+    trng = random.Random(f"{seed}:types")
+    psi_pub = type_costs(trng, sc["wcet"]["publisher"]["collect"], list(sc["types"]), "publisher.collect")
+    psi_sub = type_costs(trng, sc["wcet"]["subscriber"]["dispatch"], list(sc["types"]), "subscriber.dispatch")
     limit = Fraction(str(sc["limits"]["max_cpu_utilization"]))
     reasons: Counter = Counter()
     for attempt in range(1, sc["limits"]["attempts"] + 1):
         try:
-            d = draw(rng, sc, topo)
+            d = draw(rng, sc, topo, psi_pub, psi_sub)
         except uadp.SizeError as e:
             reasons[f"NM size: {e}".split(" exceeds")[0]] += 1
             continue

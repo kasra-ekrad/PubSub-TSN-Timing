@@ -68,13 +68,18 @@ limits:
   attempts: 500             # draws before giving up
 
 # WCET = base + slope * size, with base and slope drawn per task from these ranges.
+# Exception: collect (psi) and dispatch (psi') have ONE value per data type for the whole
+# system (every Float costs the same): base + per_byte * size(type), with base and per_byte
+# drawn once for the system, so larger types never cost less;
+# or set them yourself with per_type, e.g.
+#   collect: {per_type: {Float: 0.2, Double: 0.25, Int32: 0.2, Int16: 0.15, Boolean: 0.12}}
 # Rough estimates for a 1-2 GHz industrial CPU running open62541 on Linux, scaled
 # from Kirchberger (TU Wien 2022, open62541 PubSub at 80 MHz: encode 45.7 us,
 # UDP send 81.7 us, UDP receive 17.3 us, decode 387.2 us for one Int32 field)
 # and usual Linux UDP send/receive costs. Replace with measurements when available.
 wcet:
   publisher:
-    collect:   {base: [0.1, 0.3], per_byte: [0.001, 0.003]}   # psi, per variable (bytes of its type)
+    collect:   {base: [0.1, 0.3], per_byte: [0.001, 0.003]}   # psi, per data type (bytes of the type)
     dsw:       {base: [0.3, 0.8], per_field: [0.05, 0.15]}    # phi, per DSM
     wg:        {base: [0.5, 1.0], per_dsm: [0.1, 0.3]}        # C3, NM header + concatenation
     transport: {base: [3.0, 10.0], per_byte: [0.001, 0.003]}  # C4, sendmsg + copy (NM bytes)
@@ -82,4 +87,4 @@ wcet:
     reception: {base: [3.0, 10.0], per_byte: [0.001, 0.003]}  # C1, recvmsg + copy (NM bytes)
     filter:    {base: [0.1, 0.3]}                             # C2
     decode:    {base: [0.5, 2.0], per_field: [0.1, 0.5]}      # phi', per DSM
-    dispatch:  {base: [0.1, 0.3], per_byte: [0.001, 0.003]}   # psi', per field
+    dispatch:  {base: [0.1, 0.3], per_byte: [0.001, 0.003]}   # psi', per data type
