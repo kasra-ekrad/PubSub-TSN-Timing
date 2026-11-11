@@ -3,8 +3,8 @@
 The port was also compared with the original AVB_analysis_input_generator.m
 (run in Octave) on a system with two ST messages sharing a link, a shuffled
 synthetic Schedule.txt and 4 AVB + 2 BE messages: AVB_Input.txt was
-byte-identical with --legacy-avb-classes, and with --with-be against the
-original with its BE block uncommented.
+byte-identical (same odd/even AVB class rule), and with --with-be against
+the original with its BE block uncommented.
 """
 import pytest
 
@@ -50,21 +50,15 @@ def test_st_blocks_from_schedule(exp):
     assert st[1].endswith("offset = 0.250000")                          # file order, as find(...)
 
 
-def test_avb_classes_from_yaml(exp):
+def test_avb_classes_assigned_in_step_5(exp):
     base, folder, _ = exp
     avb.run(1, str(base))
-    prios = [l for l in (folder / "AVB_Input.txt").read_text().splitlines()
-             if l.startswith("priority = Class")]
-    # AVB messages in WriterGroupId order: 2 (A), 10 (A), 11 (B), 12 (B), 13 (B)
-    assert prios == ["priority = ClassA"] * 2 + ["priority = ClassB"] * 3
-
-
-def test_legacy_classes_alternate(exp):
-    base, folder, _ = exp
-    avb.run(1, str(base), legacy_avb_classes=True)
     prios = [l.split()[-1] for l in (folder / "AVB_Input.txt").read_text().splitlines()
              if l.startswith("priority = Class")]
+    # original rule: odd positions ClassA, even positions ClassB
     assert prios == ["ClassA", "ClassB", "ClassA", "ClassB", "ClassA"]
+    rows = (folder / "AVB_Input_map.csv").read_text().splitlines()[1:]
+    assert [r.split(",")[4] for r in rows if ",AVB," in r] == prios
 
 
 def test_with_be(exp):
@@ -88,14 +82,6 @@ def test_too_few_start_times(exp):
     text = (folder / "Schedule.txt").read_text().splitlines()
     (folder / "Schedule.txt").write_text("\n".join(l for l in text if not l.startswith(f"0,{links[0]},0,")))
     with pytest.raises(MappingError, match="start times"):
-        avb.run(1, str(base))
-
-
-def test_message_map_must_match(exp):
-    base, folder, _ = exp
-    csv = (folder / "message_map.csv").read_text().replace(",AVB_A,2,,False,1000.0", ",AVB_A,2,,False,999.0")
-    (folder / "message_map.csv").write_text(csv)
-    with pytest.raises(MappingError, match="does not match"):
         avb.run(1, str(base))
 
 

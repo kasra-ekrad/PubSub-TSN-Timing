@@ -46,7 +46,7 @@ traffic:                   # PLACEHOLDERS
   st_short_period_bias: 1.0  # which WGs become ST: each is picked with weight T^-bias.
                            # 0 = any period equally likely; 1 = a 500 us WG is 20x as likely
                            # as a 10000 us one; 2 = 400x. Long periods stay possible.
-  avb_a_share: 0.5         # share of the AVB WGs in class A (those with the shortest periods)
+# All other WGs are AVB; class A or B is assigned in step 5 (AVB_Input.txt).
 # Priorities are global: every ST WG above every AVB WG, then shorter period first,
 # then smaller WriterGroupId; rho = rank (number of WGs for the highest).
 

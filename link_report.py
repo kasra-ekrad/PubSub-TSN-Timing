@@ -7,7 +7,8 @@ Schedule.txt and AVB_Input.txt), the messages whose path uses it and
 
 with length in bytes as given to the network tools (frame incl. preamble/SFD and
 IFG when preamble_ifg is true), period in us (best-effort flows: period or
-min_inter_arr_time) and bandwidth in bytes/us. Split by ST, AVB_A, AVB_B and BE.
+min_inter_arr_time) and bandwidth in bytes/us. Split by ST, AVB_A, AVB_B and BE
+(plus AVB for AVB messages whose class is not assigned yet, before step 5).
 
 Writes, into the experiment folder:
     link_utilization.csv            one row per link
@@ -28,6 +29,11 @@ from fractions import Fraction
 from system import System, load_systems
 
 CLASSES = ("ST", "AVB_A", "AVB_B", "BE")
+ALL_CLASSES = CLASSES + ("AVB",)          # "AVB": class not assigned yet (before step 5)
+
+
+def columns(links: list[dict]) -> tuple[str, ...]:
+    return ALL_CLASSES if any(l["AVB"] for l in links) else CLASSES
 
 
 def flows(system: System) -> list[dict]:
@@ -46,7 +52,7 @@ def link_utilization(system: System) -> list[dict]:
     if cfg is None:
         return []
     links = [{"link_id": i, "from": a, "to": b, "messages": [],
-              "bytes_per_us": Fraction(0), **{c: Fraction(0) for c in CLASSES}}
+              "bytes_per_us": Fraction(0), **{c: Fraction(0) for c in ALL_CLASSES}}
              for i, (a, b) in enumerate(cfg.architecture, start=1)]
     row = {(l["from"], l["to"]): l for l in links}
     for f in flows(system):
@@ -58,7 +64,7 @@ def link_utilization(system: System) -> list[dict]:
             l[f["kind"]] += rate
     for l in links:
         l["utilization"] = l["bytes_per_us"] / cfg.bandwidth
-        for c in CLASSES:
+        for c in ALL_CLASSES:
             l[c + "_util"] = l[c] / cfg.bandwidth
     return links
 
@@ -69,15 +75,16 @@ def _pct(x: Fraction) -> float:
 
 def write_report(system: System, folder: str) -> list[dict]:
     links = link_utilization(system)
+    cols = columns(links)
     os.makedirs(folder, exist_ok=True)
     with open(os.path.join(folder, "link_utilization.csv"), "w", newline="", encoding="utf-8") as f:
         w = csv.writer(f)
         w.writerow(["link_id", "from", "to", "messages", "bytes_per_us", "bandwidth_bytes_per_us"]
-                   + [f"{c}_percent" for c in CLASSES] + ["total_percent"])
+                   + [f"{c}_percent" for c in cols] + ["total_percent"])
         for l in links:
             w.writerow([l["link_id"], l["from"], l["to"], len(l["messages"]),
                         round(float(l["bytes_per_us"]), 6), float(system.network_config.bandwidth)]
-                       + [_pct(l[c + "_util"]) for c in CLASSES] + [_pct(l["utilization"])])
+                       + [_pct(l[c + "_util"]) for c in cols] + [_pct(l["utilization"])])
     with open(os.path.join(folder, "link_utilization_messages.csv"), "w", newline="",
               encoding="utf-8") as f:
         w = csv.writer(f)
@@ -94,12 +101,13 @@ def write_report(system: System, folder: str) -> list[dict]:
 def print_report(links: list[dict], bandwidth) -> None:
     if not links:
         return
+    cols = columns(links)
     print(f"\n  Link utilization  (bandwidth {float(bandwidth):g} bytes/us; % of the link)")
-    print(f"    {'link':>4} {'from':>5} {'to':>5} {'msgs':>4} " + " ".join(f"{c:>7}" for c in CLASSES)
+    print(f"    {'link':>4} {'from':>5} {'to':>5} {'msgs':>4} " + " ".join(f"{c:>7}" for c in cols)
           + f" {'total':>8}")
     for l in links:
         print(f"    {l['link_id']:>4} {l['from']:>5} {l['to']:>5} {len(l['messages']):>4} "
-              + " ".join(f"{_pct(l[c + '_util']):>7.3f}" for c in CLASSES)
+              + " ".join(f"{_pct(l[c + '_util']):>7.3f}" for c in cols)
               + f" {_pct(l['utilization']):>7.3f}%")
     busiest = max(links, key=lambda l: l["utilization"])
     print(f"    busiest: link {busiest['link_id']} ({busiest['from']} -> {busiest['to']}), "

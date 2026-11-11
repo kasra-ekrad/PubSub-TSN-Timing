@@ -16,7 +16,7 @@ Nothing is random. Per message (one per received WG, ordered by WriterGroupId):
     length              Ethernet frame size from the UADP NM size [bytes] (see uadp.py)
     deadline            T
     hard_real_time      from the YAML (true = ST, false = AVB; the AVB class A/B is
-                        in message_map.csv, used by avb_input_generator.py)
+                        assigned later, in avb_input_generator.py)
     source/destination  end node of the publisher / subscriber
     path                index into route{destination, source}: the path given in
                         the YAML, else the shortest route (first on ties)
@@ -58,7 +58,7 @@ def message_list(system: System) -> list[dict]:
         m = system.network[wgid]
         T = wgs[wgid][1].T
         out.append({
-            "class": "TT" if m.hard_real_time else f"AVB_{m.avb_class}", "writer_group_id": wgid, "name": "",
+            "class": "TT" if m.hard_real_time else "AVB", "writer_group_id": wgid, "name": "",
             "period": T, "offset": 0, "jitter_transmission": 0, "jitter_reception": 0,
             "min_inter_arr_time": 0, "length": m.length, "deadline": T,
             "hard_real_time": m.hard_real_time,

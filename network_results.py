@@ -3,7 +3,8 @@
 AVB, from final_new_results.txt (written by AVB_analysis.exe):
     columns: block ID (0-based position in AVB_Input.txt), priority (2 = class A,
     3 = class B), deadline [ps], worst-case response time [ps]
-    -> R^max_g = WCRT, the worst-case network delay from the hand-off;
+    -> R^max_g = WCRT, the worst-case network delay from the hand-off; the AVB class
+       (A/B) as assigned in step 5 and used by the analysis;
        J' = R^max_g - R^min_g with R^min_g = h C_N + (h - 1) epsilon.
     The block ID is mapped to the WG with AVB_Input_map.csv.
 
@@ -65,7 +66,7 @@ def read_avb_results(folder: str, results_path: str) -> dict[int, dict]:
                                f"priority {prio}, but AVB_Input.txt gives it {expected}")
         out[int(b["writer_group_id"])] = {"R_max": _exact(wcrt) / PS_PER_US,
                                           "deadline": _exact(deadline) / PS_PER_US,
-                                          "priority": expected}
+                                          "avb_class": expected.removeprefix("Class")}
     return out
 
 
@@ -118,7 +119,8 @@ def apply_network_results(system: System, folder: str, schedule_path: str | None
             if wgid not in avb:
                 missing.append(f"AVB WG {wgid} (final_new_results.txt)")
                 continue
-            m = replace(m, R_max=avb[wgid]["R_max"], network_deadline=avb[wgid]["deadline"])
+            m = replace(m, R_max=avb[wgid]["R_max"], network_deadline=avb[wgid]["deadline"],
+                        avb_class=avb[wgid]["avb_class"])
         check_message(m, wgs[wgid][1].T, f"WG {wgid}")
         network[wgid] = m
     if missing:

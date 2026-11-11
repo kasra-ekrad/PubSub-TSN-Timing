@@ -38,12 +38,10 @@ def test_global_priorities_st_first(sc):
     assert all(a.T <= b.T for a, b in zip(by_rho, by_rho[1:]))
 
 
-def test_avb_class_a_has_the_shortest_periods(sc):
-    _, system, _ = gen.generate(sc)
-    T = {w.writer_group_id: w.T for w in wgs_of(system)}
-    a = [T[g] for g, m in system.network.items() if m.avb_class == "A"]
-    b = [T[g] for g, m in system.network.items() if m.avb_class == "B"]
-    assert max(a) <= min(b)
+def test_no_avb_class_before_step_5(sc):
+    d, system, _ = gen.generate(sc)
+    assert all("avb_class" not in m for m in d["network"]["messages"])
+    assert {m.traffic_class for m in system.network.values()} <= {"ST", "AVB"}
 
 
 def test_same_seed_same_system(sc):

@@ -156,7 +156,7 @@ class NetworkMessage:
     length: int                  # bytes given to the network tool
     C_N: Fraction                # transmission time on one link = length / bandwidth [us]
     epsilon: Fraction
-    avb_class: str | None = None  # "A" or "B" for AVB messages, None for ST
+    avb_class: str | None = None  # "A"/"B": set from the AVB analysis results (step 5 decides)
     # From the ST schedule, relative to the start of the period [us]:
     st_arrival_max: Fraction | None = None   # A_max: latest gate close on the last link
     st_arrival_min: Fraction | None = None   # A_min: earliest gate close on the last link
@@ -167,7 +167,9 @@ class NetworkMessage:
 
     @property
     def traffic_class(self) -> str:
-        return "ST" if self.hard_real_time else f"AVB_{self.avb_class}"
+        if self.hard_real_time:
+            return "ST"
+        return f"AVB_{self.avb_class}" if self.avb_class else "AVB"
 
     @property
     def from_schedule(self) -> bool:
@@ -410,11 +412,6 @@ def _route(d: dict, where: str, routes: dict, source: int, destination: int) -> 
 def _parse_message(d: dict, where: str, cfg: NetworkConfig, routes: dict,
                    pub: Publisher, wg: WriterGroup, sub: Subscriber) -> NetworkMessage:
     hrt = _bool(_require(d, "hard_real_time", where), f"{where}.hard_real_time")
-    avb_class = d.get("avb_class")
-    if hrt and avb_class is not None:
-        raise ConfigError(f"{where}: avb_class is only for AVB messages (hard_real_time: false)")
-    if not hrt and avb_class not in ("A", "B"):
-        raise ConfigError(f"{where}.avb_class: AVB messages need avb_class A or B, got {avb_class!r}")
     # Optional: run_all.py takes R_max from the network tools; analyse.py needs it here.
     R_max = _num(d["R_max"], f"{where}.R_max") if d.get("R_max") is not None else None
     for role, node in (("publisher", pub.node), ("subscriber", sub.node)):
@@ -433,8 +430,7 @@ def _parse_message(d: dict, where: str, cfg: NetworkConfig, routes: dict,
     msg = NetworkMessage(
         writer_group_id=wg.writer_group_id, hard_real_time=hrt, R_max=R_max,
         source=pub.node, destination=sub.node, path=tuple(path), route_index=idx,
-        size=size, length=length, C_N=Fraction(length) / cfg.bandwidth, epsilon=cfg.epsilon,
-        avb_class=avb_class)
+        size=size, length=length, C_N=Fraction(length) / cfg.bandwidth, epsilon=cfg.epsilon)
     check_message(msg, wg.T, where)
     return msg
 
@@ -537,6 +533,9 @@ def _parse_system(s: dict, where: str) -> System:
                 raise ConfigError(f"{w}: WG {wgid} is not received by any subscriber")
             pub, wg = wgs[wgid]
             msgs.append(_parse_message(d, w, cfg, routes, pub, wg, receiver[wgid]))
+            if "avb_class" in d:
+                warnings.append(f"{w}: avb_class is ignored; the AVB class is assigned in step 5 "
+                                f"(AVB_Input.txt)")
         _unique([m.writer_group_id for m in msgs], "writer_group_id", f"{where}.network.messages")
         best_effort = [_parse_best_effort(d, f"{where}.network.best_effort[{i}]", routes, n_end)
                        for i, d in enumerate(raw_be)]

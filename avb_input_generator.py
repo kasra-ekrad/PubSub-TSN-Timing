@@ -22,14 +22,14 @@ ST part (only if TT messages exist and Schedule.txt exists), as STschedule_to_fi
 AVB part, as struct_to_file:
     message / length / period = deadline = period + min_inter_arr_time /
     priority = ClassA or ClassB / linkNbr / link per hop / jitterIn / initOffset = 0
-    The class comes from avb_class in the YAML (via message_map.csv).
-    --legacy-avb-classes uses the original rule instead: odd positions ClassA,
-    even positions ClassB.
+    The class is assigned here, with the original rule: odd positions ClassA,
+    even positions ClassB (avb_priorities). The AVB analysis uses it as given, and
+    AVB_Input_map.csv records it per block.
 BE part (commented out in the original): only with --with-be, as struct_to_file
 with priority NRT.
 
 Usage:
-    python avb_input_generator.py --exp-id 1 [--dir DIR] [--legacy-avb-classes] [--with-be]
+    python avb_input_generator.py --exp-id 1 [--dir DIR] [--with-be]
 """
 from __future__ import annotations
 
@@ -140,32 +140,14 @@ def struct_blocks(msgs: list[dict], priorities: list[str], route, architecture) 
     return "".join(out)
 
 
-def avb_priorities(avb: list[dict], folder: str, legacy: bool) -> list[str]:
-    if legacy:
-        return ["ClassB" if i % 2 == 0 else "ClassA" for i in range(1, len(avb) + 1)]
-    path = os.path.join(folder, "message_map.csv")
-    if not os.path.isfile(path):
-        raise MappingError(f"{path} not found; it holds the AVB classes from the YAML "
-                           f"(or use --legacy-avb-classes)")
-    with open(path, newline="", encoding="utf-8") as f:
-        rows = [r for r in csv.DictReader(f) if r["class"].startswith("AVB")]
-    if len(rows) != len(avb):
-        raise MappingError(f"message_map.csv lists {len(rows)} AVB messages, "
-                           f"AVB_Messages.mat has {len(avb)}")
-    prios = []
-    for r, m in zip(rows, avb):   # same order: mapping_tool keeps the order of Messages.mat
-        same = (float(r["period_us"]) == m["period"] and int(r["length_bytes"]) == m["length"]
-                and int(r["source"]) == m["source"] and int(r["destination"]) == m["destination"]
-                and int(r["path_index"]) == m["path"])
-        if not same:
-            raise MappingError(f"message_map.csv row {r['message_index']} does not match "
-                               f"AVB_Messages.mat; regenerate both from the same YAML")
-        prios.append("Class" + r["class"].split("_", 1)[1])
-    return prios
+def avb_priorities(n: int) -> list[str]:
+    """The AVB class of each AVB message, in the order of AVB_Messages.mat. This is the
+    rule of the original AVB_analysis_input_generator.m: odd positions ClassA, even
+    positions ClassB. Change it here to use another rule."""
+    return ["ClassB" if i % 2 == 0 else "ClassA" for i in range(1, n + 1)]
 
 
-def run(exp_id: int, base_dir: str = ".", legacy_avb_classes: bool = False,
-        with_be: bool = False) -> dict[str, int]:
+def run(exp_id: int, base_dir: str = ".", with_be: bool = False) -> dict[str, int]:
     folder = os.path.join(base_dir, f"Experiment{exp_id}")
     tt = load_group(os.path.join(folder, "TT_Messages.mat"), "message_TT")
     avb = load_group(os.path.join(folder, "AVB_Messages.mat"), "message_AVB")
@@ -184,7 +166,7 @@ def run(exp_id: int, base_dir: str = ".", legacy_avb_classes: bool = False,
     elif tt:
         print(f"warning: {schedule_path} not found; AVB_Input.txt has no ST traffic", file=sys.stderr)
     if avb:
-        prios = avb_priorities(avb, folder, legacy_avb_classes)
+        prios = avb_priorities(len(avb))
         text += struct_blocks(avb, prios, route, architecture)
         blocks += [{"kind": "AVB", "group_index": j, "priority": p} for j, p in enumerate(prios)]
     if with_be and be:
@@ -223,12 +205,10 @@ def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description="Write AVB_Input.txt for the AVB analysis")
     ap.add_argument("--exp-id", type=int, required=True, help="experiment number (folder Experiment<ID>)")
     ap.add_argument("--dir", default=".", help="directory that contains Experiment<ID>")
-    ap.add_argument("--legacy-avb-classes", action="store_true",
-                    help="original rule: odd positions ClassA, even positions ClassB")
     ap.add_argument("--with-be", action="store_true",
                     help="also write the best-effort messages (priority NRT)")
     args = ap.parse_args(argv)
-    c = run(args.exp_id, args.dir, args.legacy_avb_classes, args.with_be)
+    c = run(args.exp_id, args.dir, args.with_be)
     print(f"wrote Experiment{args.exp_id}/AVB_Input.txt: {c['ST blocks']} ST blocks, "
           f"{c['AVB']} AVB, {c['BE']} BE")
     return 0
