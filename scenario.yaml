@@ -1,0 +1,85 @@
+# Scenario for generate_system.py: what to generate, not the system itself.
+#   python generate_system.py scenario.yaml --out generated.yaml
+#   python run_all.py generated.yaml --system gen --exp-id 1
+# Ranges are [min, max] (inclusive; whole numbers for counts).
+# Units: times in us; WCET slopes in us per byte / per field / per DSM; sizes in bytes;
+# bandwidth in bytes/us.
+
+name: gen                  # system name in the generated YAML
+seed: 1                    # same scenario + seed -> same system
+
+topology:
+  # The topology, fixed: the same for every seed. End nodes positive, switches negative,
+  # same format as network.links in the system YAML (full duplex).
+  links: [[1, -1], [2, -1], [5, -1], [-1, -2], [3, -2], [4, -2], [6, -2]]
+  publishers: [1, 2]           # end nodes that are publishers
+  subscribers: [3, 4]          # end nodes that are subscribers (each gets at least one WG)
+  best_effort_sources: [5]     # end nodes that only send best-effort traffic ([] for none)
+  # Other end nodes (here 6) are connected but send and receive nothing.
+  #
+  # Alternative: let the generator build a line of switches -1 - -2 - ... (1 switch = star).
+  # Remove `links`, `publishers`, `subscribers` and `best_effort_sources` above and use:
+  #   switches: 2
+  #   publishers: 3              # counts instead of node lists; numbered 1..P, then subscribers,
+  #   subscribers: 2             # then best-effort sources
+  #   best_effort_sources: 1
+  #   placement: random          # random | round_robin | split (publishers on the first half
+  #                              # of the line, subscribers on the second)
+  #   seed: 7                    # topology seed (default: the scenario seed); keep it fixed to
+  #                              # get the same topology while --seed changes the rest
+
+wgs_per_publisher: [1, 4]
+periods: [500, 1000, 2000, 5000, 10000]   # whole us (ST and AVB inputs take integers)
+period_weights: null       # optional, same length as periods; null = equal
+
+variables_per_wg: [2, 12]
+dsms_per_wg: [1, 4]        # capped at the number of variables
+types:                     # how often each data type is drawn (RawData sizes, uadp.py)
+  Float: 0.35
+  Double: 0.25
+  Int32: 0.2
+  Int16: 0.1
+  Boolean: 0.1
+
+traffic:                   # PLACEHOLDERS
+  st_share: 0.2            # share of WGs whose NM is ST (rounded to a whole number)
+  st_short_period_bias: 1.0  # which WGs become ST: each is picked with weight T^-bias.
+                           # 0 = any period equally likely; 1 = a 500 us WG is 20x as likely
+                           # as a 10000 us one; 2 = 400x. Long periods stay possible.
+  avb_a_share: 0.5         # share of the AVB WGs in class A (those with the shortest periods)
+# Priorities are global: every ST WG above every AVB WG, then shorter period first,
+# then smaller WriterGroupId; rho = rank (number of WGs for the highest).
+
+best_effort:
+  flows: 2                 # each from a random best-effort source to a random subscriber
+  length: [64, 1542]       # bytes on the wire
+  periods: [1000, 2000, 5000]
+
+network:
+  bandwidth: 12.5          # bytes/us (100 Mbit/s), as the network tools
+  epsilon: 0
+  max_link_load: 90        # percent
+  publisher_id_type: UInt16
+  vlan_tag: true
+  preamble_ifg: true
+
+limits:
+  max_cpu_utilization: 1.0  # each publisher and subscriber: sum W/T must stay below this
+  attempts: 500             # draws before giving up
+
+# WCET = base + slope * size, with base and slope drawn per task from these ranges.
+# Rough estimates for a 1-2 GHz industrial CPU running open62541 on Linux, scaled
+# from Kirchberger (TU Wien 2022, open62541 PubSub at 80 MHz: encode 45.7 us,
+# UDP send 81.7 us, UDP receive 17.3 us, decode 387.2 us for one Int32 field)
+# and usual Linux UDP send/receive costs. Replace with measurements when available.
+wcet:
+  publisher:
+    collect:   {base: [0.1, 0.3], per_byte: [0.001, 0.003]}   # psi, per variable (bytes of its type)
+    dsw:       {base: [0.3, 0.8], per_field: [0.05, 0.15]}    # phi, per DSM
+    wg:        {base: [0.5, 1.0], per_dsm: [0.1, 0.3]}        # C3, NM header + concatenation
+    transport: {base: [3.0, 10.0], per_byte: [0.001, 0.003]}  # C4, sendmsg + copy (NM bytes)
+  subscriber:
+    reception: {base: [3.0, 10.0], per_byte: [0.001, 0.003]}  # C1, recvmsg + copy (NM bytes)
+    filter:    {base: [0.1, 0.3]}                             # C2
+    decode:    {base: [0.5, 2.0], per_field: [0.1, 0.5]}      # phi', per DSM
+    dispatch:  {base: [0.1, 0.3], per_byte: [0.001, 0.003]}   # psi', per field

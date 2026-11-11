@@ -1,0 +1,184 @@
+# One file, several systems A = <X, Y, N>.
+# Times in microseconds; decimals allowed and read exactly (0.4 = 2/5).
+# Sizes in bytes, bandwidth in bytes/us. The WCET values below are placeholders.
+#
+# Publisher E_i:   p, node (end node in network.links), writer_groups
+# WG Gamma_{i,j}:
+#   n                transaction index within the publisher
+#   writer_group_id  spec WriterGroupId, unique in the system; breaks rho ties (smaller = higher)
+#   T                publishing interval
+#   rho              priority, larger = higher
+#   types            data type per variable (same order as psi), for the NM size:
+#                    Boolean SByte Byte Int16 UInt16 Int32 UInt32 Float StatusCode
+#                    Int64 UInt64 Double DateTime Guid, String(n)/ByteString(n) with
+#                    MaxStringLength n, arrays as Type[n]
+#   psi              collection time per variable  (length v)
+#   phi              build/encode time per DSM     (length Delta)
+#   C3, C4           NM assembly, hand-off to the NIC
+
+time_unit: us
+
+systems:
+  - name: ex1
+    publishers:
+      - p: 1
+        node: 1
+        writer_groups:
+          - n: 1
+            writer_group_id: 10
+            T: 1000
+            rho: 6
+            types: [Double, Double, Float, Float, Int32]
+            psi: [0.4, 0.4, 0.6, 0.6, 0.8]
+            phi: [2.5, 3.0]
+            C3: 2.0
+            C4: 15.0
+          - n: 2
+            writer_group_id: 11
+            T: 2000
+            rho: 5
+            types: [Float, Float, Float, Float, Float, Float, Float, Float]
+            psi: [0.4, 0.4, 0.4, 0.4, 0.4, 0.4, 0.4, 0.4]
+            phi: [2.5, 2.5, 3.5]
+            C3: 2.5
+            C4: 15.0
+          - n: 3                  # same rho as n = 2; WriterGroupId 12 > 11, so lower
+            writer_group_id: 12
+            T: 2000
+            rho: 5
+            types: [Int16, Int16, Boolean]
+            psi: [0.5, 0.5, 0.5]
+            phi: [3.0]
+            C3: 1.5
+            C4: 15.0
+          - n: 4
+            writer_group_id: 13
+            T: 10000
+            rho: 2
+            types: [Double, Double, Double, Double, Float, Float, Float, Float,
+                    String(32), String(32), UInt64, DateTime]
+            psi: [0.3, 0.3, 0.3, 0.3, 0.3, 0.3, 0.3, 0.3, 0.3, 0.3, 0.3, 0.3]
+            phi: [4.0, 4.0, 4.0, 4.0]
+            C3: 3.5
+            C4: 16.0
+      - p: 2
+        node: 2
+        writer_groups:
+          - n: 1
+            writer_group_id: 1
+            T: 500
+            rho: 7
+            types: [Boolean, UInt16]
+            psi: [0.5, 0.5]
+            phi: [2.0]
+            C3: 1.5
+            C4: 14.0
+          - n: 2
+            writer_group_id: 2
+            T: 1000
+            rho: 3
+            types: ["Float[8]", "Float[8]", Int32, Int32]
+            psi: [0.4, 0.4, 0.4, 0.4]
+            phi: [2.5, 2.5]
+            C3: 2.0
+            C4: 15.0
+
+    # Gamma'_{k,m}: one entry per received WG. T' and rho' come from that WG.
+    #   C1   reception (copy from the receive buffer)    C2   filtering
+    #   phi  decoding time per DSM  (length Delta')      psi  dispatch time per field (length v')
+    subscribers:
+      - k: 1
+        node: 3
+        transactions:
+          - {m: 1, writer_group_id: 10, C1: 3.0, C2: 1.0, phi: [2.0, 2.5], psi: [0.3, 0.3, 0.4, 0.4, 0.5]}
+          - {m: 2, writer_group_id: 11, C1: 3.5, C2: 1.0, phi: [2.0, 2.0, 3.0], psi: [0.3, 0.3, 0.3, 0.3, 0.3, 0.3, 0.3, 0.3]}
+          - {m: 3, writer_group_id: 1,  C1: 2.5, C2: 1.0, phi: [1.5], psi: [0.4, 0.4]}
+      - k: 2
+        node: 4
+        transactions:
+          - {m: 1, writer_group_id: 12, C1: 2.5, C2: 1.0, phi: [2.5], psi: [0.4, 0.4, 0.4]}
+          - {m: 2, writer_group_id: 13, C1: 4.0, C2: 1.0, phi: [3.0, 3.0, 3.0, 3.0], psi: [0.25, 0.25, 0.25, 0.25, 0.25, 0.25, 0.25, 0.25, 0.25, 0.25, 0.25, 0.25]}
+          - {m: 3, writer_group_id: 2,  C1: 3.0, C2: 1.0, phi: [2.0, 2.0], psi: [0.3, 0.3, 0.3, 0.3]}
+
+    network:
+      # Architecture as in Network_generator.m: end nodes positive, switches negative.
+      # Here: two switches; publishers on -1, subscribers on -2.
+      # Nodes 5 and 6 are not PubSub nodes; node 5 only sends best-effort traffic.
+      links: [[1, -1], [2, -1], [5, -1], [-1, -2], [3, -2], [4, -2], [6, -2]]
+      full_duplex: true
+      bandwidth: 12.5             # bytes/us (100 Mbit/s), the link speed of the network tools
+      max_link_load: 90           # percent; exceeding it is an error
+      epsilon: 0                  # switching-fabric delay per switch [us]; the tools assume 0
+      publisher_id_type: UInt16   # Table A.1: UInt16 or UInt64
+      vlan_tag: true              # 802.1Q tag (carries the PCP)
+      preamble_ifg: true          # length includes preamble/SFD (8) and IFG (12)
+      # m_g per WG. R_max: worst-case network delay. run_all.py takes it from the network
+      # tools and ignores these values; analyse.py alone uses them (then for ST: delay
+      # from the hand-off).
+      #   hard_real_time: true = ST (J' = 0), false = AVB (J' = R_max - R_min,
+      #   avb_class: A or B, required for AVB (the queue in AVB_Input.txt); not allowed for ST
+      #   R_min = h*C_N + (h-1)*epsilon, h and C_N derived from the path and the frame size)
+      #   path (optional): node list from publisher to subscriber; default is the shortest route
+      messages:
+        - {writer_group_id: 10, hard_real_time: false, avb_class: A, R_max: 60}
+        - {writer_group_id: 11, hard_real_time: false, avb_class: B, R_max: 80}
+        - {writer_group_id: 12, hard_real_time: false, avb_class: B, R_max: 70}
+        - {writer_group_id: 13, hard_real_time: false, avb_class: B, R_max: 120}
+        - {writer_group_id: 1,  hard_real_time: true,  R_max: 20}
+        - {writer_group_id: 2,  hard_real_time: false, avb_class: A, R_max: 65}
+      # Background best-effort flows (not PubSub, not in the timing analysis).
+      #   source/destination: any end nodes; length: bytes on the network (here the
+      #   largest tagged frame 1522 + preamble/SFD/IFG 20); period OR min_inter_arr_time;
+      #   path optional as above.
+      best_effort:
+        - {name: camera, source: 5, destination: 4, length: 1542, period: 1000}
+        - {name: logging, source: 5, destination: 3, length: 600, min_inter_arr_time: 5000}
+
+  # Scaled version of the Davis et al. (2007) three-message example:
+  # the lowest-priority WG has its worst case at instance q = 1, not q = 0.
+  - name: davis
+    publishers:
+      - p: 1
+        writer_groups:
+          - {n: 1, writer_group_id: 1, T: 25, rho: 3, psi: [4], phi: [3], C3: 2, C4: 1}
+          - {n: 2, writer_group_id: 2, T: 35, rho: 2, psi: [4], phi: [3], C3: 2, C4: 1}
+          - {n: 3, writer_group_id: 3, T: 35, rho: 1, psi: [4], phi: [3], C3: 2, C4: 1}
+
+  # Small case to check by hand. WG 1 (AVB, J' = 10) can deliver two NMs within
+  # omega' of WG 2, so jitter raises R^s of WG 2 from 13 to 17.
+  # Each NM: 15 + 5 + 1 = 21 bytes, frame 71, on the wire 91 bytes; with a
+  # bandwidth of 91 bytes/us, C_N = 1 us. WG 1: h = 2, R_min = 2*1 + 1*1 = 3.
+  #   WG 1: B' = 6, omega'(1) = 6,  R^s = 10 + 6 + 4 = 20
+  #   WG 2: B' = 6, omega'(1) = 6 + 2*4 = 14, R^s = 0 + 14 + 3 = 17
+  #   WG 3: B' = 0, omega'(1) = 4 + 3 = 7,    R^s = 7 + 6 = 13
+  #   e2e:  WG 1: 2 + 13 + 20 = 35,  WG 2: 3 + 4 + 17 = 24,  WG 3: 5 + 6 + 13 = 24
+  - name: jitter_demo
+    publishers:
+      - p: 1
+        node: 1
+        writer_groups:
+          - {n: 1, writer_group_id: 1, T: 20,  rho: 3, types: [Boolean], psi: [1], phi: [1], C3: 0, C4: 0}
+      - p: 2
+        node: 2
+        writer_groups:
+          - {n: 1, writer_group_id: 2, T: 40,  rho: 2, types: [Boolean], psi: [1], phi: [1], C3: 1, C4: 0}
+      - p: 3
+        node: 3
+        writer_groups:
+          - {n: 1, writer_group_id: 3, T: 100, rho: 1, types: [Boolean], psi: [2], phi: [1], C3: 1, C4: 1}
+    subscribers:
+      - k: 1
+        node: 4
+        transactions:
+          - {m: 1, writer_group_id: 1, C1: 1, C2: 1, phi: [1], psi: [1]}
+          - {m: 2, writer_group_id: 2, C1: 1, C2: 0, phi: [1], psi: [1]}
+          - {m: 3, writer_group_id: 3, C1: 1, C2: 1, phi: [2], psi: [2]}
+    network:
+      links: [[1, -1], [2, -1], [3, -1], [4, -1]]
+      full_duplex: true
+      bandwidth: 91
+      epsilon: 1
+      messages:
+        - {writer_group_id: 1, hard_real_time: false, avb_class: A, R_max: 13}
+        - {writer_group_id: 2, hard_real_time: true,  R_max: 4}
+        - {writer_group_id: 3, hard_real_time: true,  R_max: 6}
