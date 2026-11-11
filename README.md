@@ -109,3 +109,8 @@ The scenario gives the topology (links and which end nodes are publishers, subsc
 - End-to-end: R = R^p + R^max + R^s.
 - Instance numbering: publisher q is 0-based (q = 0..Q−1); subscriber q is 1-based (q = 1..q_max).
 - Exit code is 0 only if every publisher WG and subscriber transaction is `ok`.
+
+
+
+python generate_system.py scenario.yaml --out generated.yaml
+python run_all.py generated.yaml --system gen --exp-id 1
