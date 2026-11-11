@@ -3,8 +3,9 @@
 The stand-ins are small Python programs named like the real exes. They take the
 same arguments (experiment folder, STHS_input.txt, number of queues / folder)
 and write Schedule.txt and final_new_results.txt in the real formats: the
-scheduler places every ST frame as late as possible in its period, like the real
-one; the AVB stand-in reports WCRT = links * length * 80 ns + 50 us.
+scheduler places every ST frame as late as possible in its period and repeats
+each link with its own cycle, like the real one; the AVB stand-in reports
+WCRT = links * length * 80 ns + 50 us.
 """
 import json
 import math
@@ -24,15 +25,19 @@ for b in blocks:
     kv = [l.split(" = ") for l in b.splitlines()[1:]]
     msgs.append({"length": int(kv[0][1]), "period": int(kv[1][1]),
                  "links": [int(v) for k, v in kv if k == "link"]})
-H = math.lcm(*[m["period"] for m in msgs])
+# like the real scheduler, every link has its own cycle: the hyperperiod of its ST messages
+cycle = {}
+for m in msgs:
+    for link in m["links"]:
+        cycle[link] = math.lcm(cycle.get(link, 1), m["period"])
 with open(os.path.join(folder, "Schedule.txt"), "w") as f:
     for i, m in enumerate(msgs):
         d = m["length"] * 80                        # ns per frame at 100 Mbit/s
-        for k in range(H // m["period"]):
-            close = (k + 1) * m["period"] * 1000
-            for j, link in reversed(list(enumerate(m["links"]))):
+        h = len(m["links"])
+        for j, link in enumerate(m["links"]):
+            for k in range(cycle[link] // m["period"]):
+                close = (k + 1) * m["period"] * 1000 - (h - 1 - j) * d   # as late as possible
                 f.write(f"{i};{link};0;{close - d};{close};\n")
-                close -= d
 '''
 
 AVB = r'''
@@ -85,6 +90,9 @@ def test_full_flow(tmp_path, tools):
     assert e2e[1]["R"] == pytest.approx(500 + e2e[1]["R_s"])                 # ST: A_max + R^s
     assert e2e[10]["R"] == pytest.approx(e2e[10]["R_p"] + e2e[10]["R_max"] + e2e[10]["R_s"])
     assert all(e["net_status"] == "ok" for e in res["e2e"])
+    # AVB classes come from step 5 (odd/even in WG order 2, 10, 11, 12, 13), as used by the analysis
+    assert [e2e[g]["traffic_class"] for g in (2, 10, 11, 12, 13)] == \
+           ["AVB_A", "AVB_B", "AVB_A", "AVB_B", "AVB_A"]
 
 
 def test_stale_outputs_are_not_reused(tmp_path, tools):

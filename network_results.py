@@ -11,11 +11,14 @@ AVB, from final_new_results.txt (written by AVB_analysis.exe):
 ST, from Schedule.txt (written by TSN_HeuristicScheduler.exe):
     columns: message index (0-based, order of STHS_input.txt), link, queue,
     gate opening time [ns], gate closing time [ns]
-    For each instance k of an ST message (k-th window in time order on each link,
-    k = floor(opening on the first link / T)), relative to the start of its period:
-        s_k = opening on the first link - k T     (transmission starts)
-        a_k = closing on the last link  - k T     (arrival at the subscriber)
-    -> A_max = max a_k, A_min = min a_k, J' = A_max - A_min, s_min = min s_k.
+    The scheduler repeats each link with its own cycle (hyperperiod of the ST messages
+    on that link), so the number of windows of a message can differ per link. Each
+    window covers one period of the message; a window opening at o belongs to the
+    period starting at k T with k = floor(o / T). Relative to that period start:
+        s = opening on the first link - k T     (transmission starts)
+        a = closing on the last link  - k T     (arrival at the subscriber)
+    -> A_max = max a, A_min = min a (over the last link's windows), J' = A_max - A_min,
+       s_min = min s (over the first link's windows).
     The end-to-end delay of an ST message is A_max + R^s; it requires R^p <= s_min
     (the NM is handed over before its first gate opens).
 """
@@ -70,6 +73,30 @@ def read_avb_results(folder: str, results_path: str) -> dict[int, dict]:
     return out
 
 
+def st_window_stats(sched, i: int, links: list[int], T: Fraction) -> dict:
+    """Arrival and start times of TT message i, relative to the start of its period [us].
+
+    The scheduler repeats each link with its own cycle (the hyperperiod of the ST
+    messages on that link), so a message can have a different number of windows on
+    different links: every window covers one period of the message. A window opening
+    at `o` belongs to the period starting at floor(o / T) * T.
+        arrivals a = gate close on the LAST link  - floor(open / T) * T
+        starts   s = gate open  on the FIRST link - floor(open / T) * T
+    """
+    def windows(link):
+        rows = sched[(sched[:, 0] == i) & (sched[:, 1] == link)]
+        return [(_exact(o) / NS_PER_US, _exact(c) / NS_PER_US) for o, c in rows[:, 3:5]]
+
+    first, last = windows(links[0]), windows(links[-1])
+    for name, w, link in (("first", first, links[0]), ("last", last, links[-1])):
+        if not w:
+            raise MappingError(f"Schedule.txt has no window for message {i} on its {name} link {link}")
+    start = lambda o: math.floor(o / T) * T
+    a = [c - start(o) for o, c in last]
+    s = [o - start(o) for o, _ in first]
+    return {"A_max": max(a), "A_min": min(a), "s_min": min(s), "instances": len(last)}
+
+
 def read_st_arrivals(folder: str, schedule_path: str, system: System) -> dict[int, dict]:
     """WriterGroupId -> {"A_max", "A_min", "s_min", "instances"} [us], relative to the period start."""
     tt_rows = [r for r in _csv(os.path.join(folder, "message_map.csv")) if r["class"] == "TT"]
@@ -79,23 +106,11 @@ def read_st_arrivals(folder: str, schedule_path: str, system: System) -> dict[in
     out: dict[int, dict] = {}
     for i, r in enumerate(tt_rows):
         wgid = int(r["writer_group_id"])
-        msg, T = system.network[wgid], wgs[wgid][1].T
-        links = link_ids(list(msg.path), arch)
-
-        def windows(link):
-            rows = sched[(sched[:, 0] == i) & (sched[:, 1] == link)]
-            return sorted((_exact(o) / NS_PER_US, _exact(c) / NS_PER_US) for o, c in rows[:, 3:5])
-
-        first, last = windows(links[0]), windows(links[-1])
-        if not first or len(first) != len(last):
-            raise MappingError(f"{schedule_path}: WG {wgid} (message {i}) has {len(first)} windows on its "
-                               f"first link {links[0]} and {len(last)} on its last link {links[-1]}")
-        s, a = [], []
-        for (open_first, _), (_, close_last) in zip(first, last):
-            k = math.floor(open_first / T)
-            s.append(open_first - k * T)
-            a.append(close_last - k * T)
-        out[wgid] = {"A_max": max(a), "A_min": min(a), "s_min": min(s), "instances": len(first)}
+        links = link_ids(list(system.network[wgid].path), arch)
+        try:
+            out[wgid] = st_window_stats(sched, i, links, wgs[wgid][1].T)
+        except MappingError as e:
+            raise MappingError(f"{schedule_path}: WG {wgid}: {e}") from None
     return out
 
 
