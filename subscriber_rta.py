@@ -15,10 +15,14 @@ Jitter J = R^max_g - R^min_g of the NM received (0 for ST).
 Schedulable iff R^s <= T'.
 
 End-to-end delay:
-    AVB, or ST with R^max from the YAML:   R_{i,j} = R^p_{i,j} + R^max_g + R^s_{k,m}
-    ST with the schedule (run_all.py):     R_{i,j} = A_max + R^s_{k,m}
-        (A_max = latest arrival relative to the period start; valid if R^p <= the
-        first gate opening, otherwise net_status = "st_not_ready")
+    R_{i,j} = R^p_{i,j} + R^max_g + R^s_{k,m} - J'_{k,m}
+R^s is measured from the earliest possible arrival and so contains J'; R^max is
+the latest arrival (= R^min + J'). Subtracting J' once counts the jitter once:
+    AVB, or ST with R^max from the YAML:   R = R^p + R^min + R^s
+    ST with the schedule (run_all.py):     R^max = A_max - R^p, J' = A_max - A_min,
+                                           so R = A_min + R^s
+        (A_max/A_min = latest/earliest arrival relative to the period start; valid
+        if R^p <= the first gate opening, otherwise net_status = "st_not_ready")
 
 Priority order: larger rho is higher priority (inherited from the sending WG);
 equal rho is broken by the smaller WriterGroupId (unique in the system).
@@ -67,10 +71,11 @@ class E2EResult:
     R_p: int | None
     R_max: int | None         # network part; for ST from the schedule: A_max - R^p
     R_s: int | None
-    R: int | None             # AVB: R^p + R^max + R^s;  ST (schedule): A_max + R^s
+    R: int | None             # R^p + R^max + R^s - J
     pub_status: str
     sub_status: str
     net_status: str = ""      # "ok", "deadline_miss" (AVB analysis), "st_not_ready" (R^p > first gate)
+    J: int | None = None      # J' of the NM, counted once in R
 
 
 def analyse_transaction(sub: Subscriber, t: SubTransaction, J: dict[int, int]) -> SubResult:
@@ -128,20 +133,21 @@ def analyse_e2e(system: System, pub_results: dict[int, list[WGResult]],
             pr = by_wg[s.writer_group_id]
             msg = system.network[s.writer_group_id]
             known = pr.R is not None and s.R is not None
+            J = msg.J
             if msg.hard_real_time and msg.from_schedule:
-                # Arrival A_max is measured from the period start, so R^p is not added again.
+                # A_max is measured from the period start: written as R^max = A_max - R^p
+                # so that R = R^p + R^max + R^s - J = A_min + R^s.
                 R_net = None if pr.R is None else msg.st_arrival_max - pr.R
-                R = msg.st_arrival_max + s.R if known else None
                 net = "ok" if pr.R is None or pr.R <= msg.st_start_min else "st_not_ready"
             else:
                 R_net = msg.R_max
-                R = pr.R + msg.R_max + s.R if known else None
                 net = ("" if msg.network_deadline is None else
                        "ok" if msg.R_max <= msg.network_deadline else "deadline_miss")
+            R = pr.R + R_net + s.R - J if known else None
             out.append(E2EResult(writer_group_id=s.writer_group_id, p=s.p, k=s.k, m=s.m,
                                  traffic_class=msg.traffic_class, R_p=pr.R, R_max=R_net,
                                  R_s=s.R, R=R, pub_status=pr.status, sub_status=s.status,
-                                 net_status=net))
+                                 net_status=net, J=J))
     return out
 
 

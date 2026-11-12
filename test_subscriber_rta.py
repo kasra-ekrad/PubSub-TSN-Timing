@@ -33,7 +33,8 @@ def test_jitter_demo_by_hand():
     assert (rows[1].J, rows[1].B, rows[1].omega, rows[1].R) == (10, 6, [6], 20)
     assert (rows[2].J, rows[2].B, rows[2].omega, rows[2].R) == (0, 6, [14], 17)
     assert (rows[3].J, rows[3].B, rows[3].omega, rows[3].R) == (0, 0, [7], 13)
-    assert {e.writer_group_id: e.R for e in e2e} == {1: 35, 2: 24, 3: 24}
+    # R = R^p + R^max + R^s - J': WG 1 2 + 13 + 20 - 10 = 25; WG 2, 3 (ST, J' = 0) unchanged
+    assert {e.writer_group_id: e.R for e in e2e} == {1: 25, 2: 24, 3: 24}
 
 
 def test_jitter_adds_second_interfering_nm():
@@ -94,7 +95,7 @@ systems:
 # A Boolean-only NM is 21 bytes, 91 bytes on the wire, so C_N = 1 us at 91 bytes/us.
 
 
-def load(tmp_path, wg2="2", msg1="{writer_group_id: 1, hard_real_time: false, avb_class: A, R_max: 20}",
+def load(tmp_path, wg2="2", msg1="{writer_group_id: 1, hard_real_time: false, R_max: 20}",
          type1="Boolean", load_pct="100"):
     f = tmp_path / "s.yaml"
     f.write_text(BASE.replace("WG2", wg2).replace("MSG1", msg1).replace("TYPE1", type1)
@@ -116,12 +117,12 @@ def test_writer_group_id_unique_across_publishers(tmp_path):
 
 def test_R_max_below_R_min(tmp_path):
     with pytest.raises(ConfigError, match="R_max"):
-        load(tmp_path, msg1="{writer_group_id: 1, hard_real_time: false, avb_class: A, R_max: 2}")
+        load(tmp_path, msg1="{writer_group_id: 1, hard_real_time: false, R_max: 2}")
 
 
 def test_jitter_above_period(tmp_path):
     with pytest.raises(ConfigError, match="exceeds T"):
-        load(tmp_path, msg1="{writer_group_id: 1, hard_real_time: false, avb_class: A, R_max: 200}")
+        load(tmp_path, msg1="{writer_group_id: 1, hard_real_time: false, R_max: 200}")
 
 
 def test_st_has_zero_jitter(tmp_path):
@@ -132,6 +133,12 @@ def test_st_has_zero_jitter(tmp_path):
 def test_message_for_wg_without_subscriber(tmp_path):
     with pytest.raises(ConfigError, match="not received by any subscriber"):
         load(tmp_path, msg1="{writer_group_id: 2, hard_real_time: true, R_max: 50}")
+
+
+def test_avb_class_in_yaml_is_ignored_with_warning(tmp_path):
+    (s,) = load(tmp_path, msg1="{writer_group_id: 1, hard_real_time: false, avb_class: A, R_max: 20}")
+    assert s.network[1].avb_class is None and s.network[1].traffic_class == "AVB"
+    assert any("avb_class is ignored" in w for w in s.warnings)
 
 
 def test_hard_real_time_must_be_boolean(tmp_path):

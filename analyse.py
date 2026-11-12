@@ -79,13 +79,14 @@ def print_subscribers(sub_results, instances: bool) -> None:
 def print_e2e(e2e) -> None:
     if not e2e:
         return
-    print("\n  End-to-end  R = R^p + R^max + R^s   (ST from the schedule: R^max = A_max - R^p)")
+    print("\n  End-to-end  R = R^p + R^max + R^s - J'   (J' is in both R^max and R^s; "
+          "ST from the schedule: R^max = A_max - R^p)")
     print(f"    {'WGId':>5} {'path':>10} {'class':>5} {'R^p':>12} {'R^max':>12} {'R^s':>12} "
-          f"{'R':>12}  pub / net / sub status")
+          f"{'J':>10} {'R':>12}  pub / net / sub status")
     for e in sorted(e2e, key=lambda e: e.writer_group_id):
         path = f"E{e.p}->E'{e.k}"
         print(f"    {e.writer_group_id:>5} {path:>10} {e.traffic_class:>5} {_fmt(e.R_p):>12} "
-              f"{_fmt(e.R_max):>12} {_fmt(e.R_s):>12} {_fmt(e.R):>12}  "
+              f"{_fmt(e.R_max):>12} {_fmt(e.R_s):>12} {_fmt(e.J):>10} {_fmt(e.R):>12}  "
               f"{e.pub_status} / {e.net_status or '-'} / {e.sub_status}")
 
 

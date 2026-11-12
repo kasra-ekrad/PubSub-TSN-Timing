@@ -87,8 +87,10 @@ def test_full_flow(tmp_path, tools):
     assert net["10"]["R_max"] == pytest.approx(3 * 123 * 0.08 + 50)
     assert net["10"]["J"] == pytest.approx(net["10"]["R_max"] - net["10"]["R_min"])
     e2e = {e["writer_group_id"]: e for e in res["e2e"]}
-    assert e2e[1]["R"] == pytest.approx(500 + e2e[1]["R_s"])                 # ST: A_max + R^s
-    assert e2e[10]["R"] == pytest.approx(e2e[10]["R_p"] + e2e[10]["R_max"] + e2e[10]["R_s"])
+    assert e2e[1]["R"] == pytest.approx(500 + e2e[1]["R_s"])                 # ST: A_min + R^s (J' = 0)
+    # AVB: R^p + R^max + R^s - J' = R^p + R^min + R^s (jitter counted once)
+    assert e2e[10]["R"] == pytest.approx(e2e[10]["R_p"] + e2e[10]["R_max"] + e2e[10]["R_s"] - e2e[10]["J"])
+    assert e2e[10]["R"] == pytest.approx(e2e[10]["R_p"] + net["10"]["R_min"] + e2e[10]["R_s"])
     assert all(e["net_status"] == "ok" for e in res["e2e"])
     # AVB classes come from step 5 (odd/even in WG order 2, 10, 11, 12, 13), as used by the analysis
     assert [e2e[g]["traffic_class"] for g in (2, 10, 11, 12, 13)] == \

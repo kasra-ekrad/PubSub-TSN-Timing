@@ -151,7 +151,8 @@ systems:
   #   WG 1: B' = 6, omega'(1) = 6,  R^s = 10 + 6 + 4 = 20
   #   WG 2: B' = 6, omega'(1) = 6 + 2*4 = 14, R^s = 0 + 14 + 3 = 17
   #   WG 3: B' = 0, omega'(1) = 4 + 3 = 7,    R^s = 7 + 6 = 13
-  #   e2e:  WG 1: 2 + 13 + 20 = 35,  WG 2: 3 + 4 + 17 = 24,  WG 3: 5 + 6 + 13 = 24
+  #   e2e = R^p + R^max + R^s - J':  WG 1: 2 + 13 + 20 - 10 = 25,  WG 2: 3 + 4 + 17 = 24,
+  #   WG 3: 5 + 6 + 13 = 24
   - name: jitter_demo
     publishers:
       - p: 1

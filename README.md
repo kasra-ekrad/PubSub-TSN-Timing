@@ -13,7 +13,7 @@ Steps: 1 publisher RTA (ST WGs first) → 2 network generator → 3 mapping → 
 
 Options: `--num-queues` (default 4), `--with-be`, `--tools-dir` (exes elsewhere), `--work-dir`, `--folder-arg` (default `Experiment{id}\`), `--reuse-network-results` (skip the exes, reuse their outputs), `--instances`. On macOS/Linux the exes are started through `wine`.
 
-Reading the network outputs: AVB `final_new_results.txt` (block ID; priority 2 = A, 3 = B; deadline ps; WCRT ps) → R^max per WG via `AVB_Input_map.csv`. ST `Schedule.txt` (message; link; queue; gate open ns; gate close ns) → per instance k: arrival a_k = last-link close − kT, start s_k = first-link open − kT; A_max, J = A_max − A_min. ST end-to-end = A_max + R^s, valid only if R^p ≤ min s_k (else net status `st_not_ready`).
+Reading the network outputs: AVB `final_new_results.txt` (block ID; priority 2 = A, 3 = B; deadline ps; WCRT ps) → R^max per WG via `AVB_Input_map.csv`. ST `Schedule.txt` (message; link; queue; gate open ns; gate close ns) → per instance k: arrival a_k = last-link close − kT, start s_k = first-link open − kT; A_max, J = A_max − A_min. ST end-to-end = A_min + R^s (= R^p + R^max + R^s − J' with R^max = A_max − R^p), valid only if R^p ≤ min s_k (else net status `st_not_ready`).
 
 Python 3.10+, needs `pyyaml`, `numpy` and `scipy` (and `pytest` for the tests).
 
@@ -106,11 +106,6 @@ The scenario gives the topology (links and which end nodes are publishers, subsc
 ## Output
 
 - Status per WG / transaction: `ok` (R ≤ T), `deadline_miss` (R > T), `overload` (utilization of hp ∪ {self} ≥ 1).
-- End-to-end: R = R^p + R^max + R^s.
+- End-to-end: R = R^p + R^max + R^s − J' (= R^p + R^min + R^s): R^s is measured from the earliest arrival and R^max is the latest, so the jitter is counted once.
 - Instance numbering: publisher q is 0-based (q = 0..Q−1); subscriber q is 1-based (q = 1..q_max).
 - Exit code is 0 only if every publisher WG and subscriber transaction is `ok`.
-
-
-
-python generate_system.py scenario.yaml --out generated.yaml
-python run_all.py generated.yaml --system gen --exp-id 1
