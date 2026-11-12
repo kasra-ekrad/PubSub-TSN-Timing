@@ -116,12 +116,16 @@ def test_bad_scenarios(sc):
     with pytest.raises(gen.ScenarioError, match="whole microseconds"):
         gen.generate(s)
     s = copy.deepcopy(sc)
-    s["topology"]["best_effort_sources"] = []
-    with pytest.raises(gen.ScenarioError, match="best_effort source"):
+    s["topology"]["publishers"] = 1                      # a count, but `links` is given
+    with pytest.raises(gen.ScenarioError, match=r"list the node numbers, e.g. publishers: \[1\]"):
+        gen.generate(s)
+    s = copy.deepcopy(sc)
+    s["topology"] = {"switches": 1, "publishers": [1], "subscribers": [2]}   # lists, no links
+    with pytest.raises(gen.ScenarioError, match="are counts"):
         gen.generate(s)
     s = copy.deepcopy(sc)
     s["topology"]["subscribers"] = [3, 1]
-    with pytest.raises(gen.ScenarioError, match="more than one role"):
+    with pytest.raises(gen.ScenarioError, match="node 1 in publishers, subscribers"):
         gen.generate(s)
     s = copy.deepcopy(sc)
     s["topology"]["subscribers"] = [3, 9]
@@ -171,3 +175,57 @@ def test_mtu_is_enforced_while_generating(sc):
     s["limits"]["attempts"] = 5
     with pytest.raises(gen.ScenarioError, match="MTU exceeded: 5"):
         gen.generate(s)
+
+
+@pytest.mark.parametrize("topology", [
+    {"links": [[1, -1], [2, -1]], "publishers": [1], "subscribers": [2]},
+    {"links": [[1, -1], [2, -1]], "publishers": [1], "subscribers": [2], "best_effort_sources": []},
+    {"switches": 1, "publishers": 1, "subscribers": 1},
+    {"switches": 3, "publishers": 1, "subscribers": 1, "best_effort_sources": 0},
+])
+def test_one_publisher_one_subscriber(sc, topology):
+    s = copy.deepcopy(sc)
+    s["topology"] = topology
+    d, system, _ = gen.generate(s)
+    assert len(system.publishers) == 1 and len(system.subscribers) == 1
+    assert system.best_effort == () and "best_effort" not in d["network"]
+
+
+@pytest.mark.parametrize("change", ["no section", "flows 0", "no sources", "sources 0"])
+def test_no_best_effort_traffic(sc, change):
+    s = copy.deepcopy(sc)
+    if change == "no section":
+        del s["best_effort"]
+    elif change == "flows 0":
+        s["best_effort"] = {"flows": 0}
+    elif change == "no sources":
+        s["topology"]["best_effort_sources"] = []      # flows: 2 stays, but nothing can send
+    else:
+        s["topology"]["best_effort_sources"] = 0
+    _, system, _ = gen.generate(s)
+    assert system.best_effort == ()
+
+
+def test_single_pub_sub_without_be_runs_through_cli(tmp_path):
+    scen = tmp_path / "s.yaml"
+    text = open("scenario.yaml").read()
+    text = text.replace("publishers: [1, 2]", "publishers: [1]").replace(
+        "subscribers: [3, 4]", "subscribers: [3]").replace("best_effort_sources: [5]", "best_effort_sources: []")
+    scen.write_text(text)
+    assert gen.main([str(scen), "--out", str(tmp_path / "g.yaml")]) == 0
+    head = (tmp_path / "g.yaml").read_text().splitlines()[:5]
+    assert any("no best-effort traffic was generated" in h for h in head)
+    (system,) = load_systems(str(tmp_path / "g.yaml"))
+    assert len(system.publishers) == len(system.subscribers) == 1 and not system.best_effort
+
+
+@pytest.mark.parametrize("text", ["[]", "[0]", "0", "null", "None", "none", "''", "~"])
+def test_no_best_effort_sources_spellings(text):
+    import yaml
+    v = yaml.safe_load(f"x: {text}")["x"]
+    assert gen._node_list({"best_effort_sources": v}, "best_effort_sources") == []
+
+
+def test_bad_node_list_shows_value():
+    with pytest.raises(gen.ScenarioError, match=r"got \[-1\]"):
+        gen._node_list({"subscribers": [-1]}, "subscribers")

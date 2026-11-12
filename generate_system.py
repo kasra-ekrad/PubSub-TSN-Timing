@@ -120,10 +120,20 @@ class Topology:
 
 
 def _node_list(t: dict, key: str) -> list[int]:
-    v = t.get(key, [])
+    v = t.get(key)
+    if v is None:
+        return []
+    if key == "best_effort_sources" and (v in (0, [0], "", []) or
+                                         isinstance(v, str) and v.strip().lower() in ("none", "null")):
+        return []                                      # no best-effort sources
+    if isinstance(v, int) and not isinstance(v, bool):
+        raise ScenarioError(
+            f"topology.{key}: with `links` given, list the node numbers, e.g. {key}: [{max(v, 1)}]. "
+            f"To give a count instead, remove `links` and use `switches` (generated line)")
     if not isinstance(v, list) or not all(isinstance(x, int) and not isinstance(x, bool) and x > 0
                                           for x in v):
-        raise ScenarioError(f"topology.{key}: expected a list of end-node numbers (positive)")
+        raise ScenarioError(f"topology.{key}: expected a list of end-node numbers (positive), "
+                            f"e.g. [1, 2], got {v!r}")
     return v
 
 
@@ -135,7 +145,13 @@ def build_topology(sc: dict, seed: int) -> Topology:
         bes = _node_list(t, "best_effort_sources")
         roles = pubs + subs + bes
         if len(set(roles)) != len(roles):
-            raise ScenarioError("topology: a node is listed in more than one role")
+            named = {"publishers": pubs, "subscribers": subs, "best_effort_sources": bes}
+            clash = sorted({x for x in roles if roles.count(x) > 1})
+            detail = "; ".join(f"node {x} in " + ", ".join(k for k, v in named.items() if x in v)
+                               for x in clash)
+            raise ScenarioError(f"topology: {detail}. Each end node has one role (A1: a node is "
+                                f"either a publisher or a subscriber; best-effort sources are "
+                                f"separate nodes)")
         ends = {x for l in links for x in l if x > 0}
         missing = [x for x in roles if x not in ends]
         if missing:
@@ -146,11 +162,14 @@ def build_topology(sc: dict, seed: int) -> Topology:
 
     # generated line of switches, from its own seed
     rng = random.Random(f"{t.get('seed', seed)}:topology")
-    P, S, B = t["publishers"], t["subscribers"], t.get("best_effort_sources", 0)
+    if "switches" not in t:
+        raise ScenarioError("topology: give either `links` (with node lists) or `switches` (with counts)")
+    P, S, B = t.get("publishers"), t.get("subscribers"), t.get("best_effort_sources") or 0
     n_switch = t["switches"]
-    if not all(isinstance(x, int) for x in (P, S, B, n_switch)):
-        raise ScenarioError("topology: switches, publishers, subscribers and best_effort_sources "
-                            "are counts here (or give links and node lists)")
+    if not all(isinstance(x, int) and not isinstance(x, bool) for x in (P, S, B, n_switch)):
+        raise ScenarioError("topology: without `links`, switches, publishers, subscribers and "
+                            "best_effort_sources are counts, e.g. publishers: 1 "
+                            "(node lists like [1] need `links`)")
     if P < 1 or S < 1 or n_switch < 1:
         raise ScenarioError("publishers, subscribers and switches must be at least 1")
     pub_nodes = list(range(1, P + 1))
@@ -175,10 +194,20 @@ def build_topology(sc: dict, seed: int) -> Topology:
     return Topology(links, pub_nodes, sub_nodes, be_nodes)
 
 
+def best_effort_spec(sc: dict, topo: Topology) -> dict:
+    """The best_effort section; no section, flows: 0 or no best-effort source all mean
+    no best-effort traffic."""
+    be = dict(sc.get("best_effort") or {})
+    be["flows"] = int(be.get("flows") or 0) if topo.be_nodes else 0
+    if be["flows"]:
+        for key in ("length", "periods"):
+            if key not in be:
+                raise ScenarioError(f"best_effort.{key} is needed for {be['flows']} flows")
+    return be
+
+
 def draw(rng: random.Random, sc: dict, topo: Topology, psi_pub: dict, psi_sub: dict) -> dict:
-    be = sc["best_effort"]
-    if be["flows"] and not topo.be_nodes:
-        raise ScenarioError("best_effort.flows needs at least one best_effort source in the topology")
+    be = best_effort_spec(sc, topo)
     pid_type = sc["network"]["publisher_id_type"]
     pub_nodes, sub_nodes, be_nodes, links = topo.pub_nodes, topo.sub_nodes, topo.be_nodes, topo.links
     P, S = len(pub_nodes), len(sub_nodes)
@@ -255,7 +284,7 @@ def draw(rng: random.Random, sc: dict, topo: Topology, psi_pub: dict, psi_sub: d
         messages.append({"writer_group_id": w["writer_group_id"], "hard_real_time": w["class"] == "ST"})
     flows = [{"name": f"be{i + 1}", "source": rng.choice(be_nodes), "destination": rng.choice(sub_nodes),
               "length": _irange(rng, be["length"], "best_effort.length"),
-              "period": rng.choice(be["periods"])} for i in range(be["flows"])]
+              "period": rng.choice(be["periods"])} for i in range(be["flows"])] if be["flows"] else []
     net = dict(sc["network"])
     network = {"links": links, "full_duplex": True, **net, "messages": messages}
     if flows:
@@ -319,7 +348,7 @@ def load_scenario(path: str) -> dict:
     with open(path, encoding="utf-8") as f:
         sc = yaml.safe_load(f)
     required = ("name", "seed", "topology", "wgs_per_publisher", "periods",
-                "variables_per_wg", "dsms_per_wg", "types", "traffic", "best_effort", "network",
+                "variables_per_wg", "dsms_per_wg", "types", "traffic", "network",
                 "limits", "wcet")
     missing = [k for k in required if k not in sc]
     if missing:
@@ -364,6 +393,10 @@ def main(argv: list[str] | None = None) -> int:
         "CPU utilization: publishers " + ", ".join(f"E{p} {float(u):.3f}" for p, u in pub.items())
         + "; subscribers " + ", ".join(f"E'{k} {float(u):.3f}" for k, u in sub.items()) + ".",
     ]
+    asked = int((sc.get("best_effort") or {}).get("flows") or 0)
+    if asked and not system.best_effort:
+        summary.append(f"Note: best_effort.flows is {asked}, but the topology has no best-effort "
+                       f"source, so no best-effort traffic was generated.")
     write_yaml(d, args.out, summary)
     print("\n".join(summary))
     print(f"wrote {args.out}; run it with:\n  python run_all.py {args.out} --system {sc['name']} --exp-id 1")
