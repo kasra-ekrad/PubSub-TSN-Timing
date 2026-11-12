@@ -169,7 +169,7 @@ def run(exp_id: int, base_dir: str = ".") -> dict[str, list[dict]]:
     for m in messages:
         groups[classify(m)].append(m)
     if not groups["TT"]:
-        groups["TT"].append(placeholder_tt(messages))
+        #groups["TT"].append(placeholder_tt(messages))
         print("warning: no ST message; added the placeholder TT message of the original "
               "Mapping_tool to TT_Messages.mat and STHS_input.txt", file=sys.stderr)
 
