@@ -1,0 +1,7 @@
+# Scenario 2: more publishers sending to one subscriber (fan-in) -> subscriber load.
+name: fan_in
+scenario: ../scenario_line.yaml
+set: {topology.subscribers: 1, wgs_per_publisher: 2}
+parameter: topology.publishers
+values: [1, 2, 4, 6, 8]
+seeds: [1, 30]

@@ -9,7 +9,8 @@ What is drawn (all from the scenario's seed, so the result is reproducible):
   WGs          per publisher a number of WGs; per WG a period, v variables with
                types, Delta DSMs (variables split over them)
   WCETs        base + slope * size, base and slope drawn per task from ranges;
-               psi and psi' are one value per data type for the whole system
+               psi and psi' are one value per data type for the whole system;
+               finally all multiplied by wcet_scale (default 1)
   classes      round(st_share * WGs) ST WGs, picked with weight T^-bias; the others
                AVB (A or B is assigned later, in step 5)
   priorities   global: all ST WGs above all AVB WGs, then shorter period first,
@@ -338,10 +339,35 @@ def generate(sc: dict, seed: int | None = None):
         if max(sub.values()) >= limit:
             reasons["subscriber utilization >= limit"] += 1
             continue
+        # Scenario 5: the draw is accepted at scale 1, then every WCET is multiplied by
+        # wcet_scale, so all scales of one seed are the same system with other WCETs
+        # (a scaled system may become unschedulable; the analysis then reports it).
+        k = float(sc.get("wcet_scale", 1.0) or 1.0)
+        if k != 1.0:
+            d = scale_wcets(d, k)
+            system = _parse_system(copy.deepcopy(d), "generated")
         return d, system, attempt
     detail = ", ".join(f"{r}: {n}" for r, n in reasons.most_common())
     raise ScenarioError(f"no valid system in {sc['limits']['attempts']} draws ({detail}); "
                         f"use fewer WGs/variables, longer periods or smaller WCET ranges")
+
+
+def scale_wcets(d: dict, k: float) -> dict:
+    """The system dict with every WCET multiplied by k (rounded to the ns)."""
+    if k <= 0:
+        raise ScenarioError(f"wcet_scale must be > 0, got {k}")
+    d = copy.deepcopy(d)
+    for p in d["publishers"]:
+        for w in p["writer_groups"]:
+            w["psi"] = [_us(x * k) for x in w["psi"]]
+            w["phi"] = [_us(x * k) for x in w["phi"]]
+            w["C3"], w["C4"] = _us(w["C3"] * k), _us(w["C4"] * k)
+    for s in d["subscribers"]:
+        for t in s["transactions"]:
+            t["C1"], t["C2"] = _us(t["C1"] * k), _us(t["C2"] * k)
+            t["phi"] = [_us(x * k) for x in t["phi"]]
+            t["psi"] = [_us(x * k) for x in t["psi"]]
+    return d
 
 
 def load_scenario(path: str) -> dict:
@@ -389,7 +415,8 @@ def main(argv: list[str] | None = None) -> int:
         f"{len(system.publishers)} publishers, {len(system.subscribers)} subscribers, "
         f"{len({x for l in system.network_config.links for x in l if x < 0})} switch(es), {len(wgs)} WGs "
         f"(ST {classes['ST']}, AVB {classes['AVB']}), "
-        f"{len(system.best_effort)} best-effort flows.",
+        f"{len(system.best_effort)} best-effort flows."
+        + (f" WCETs scaled by {float(sc['wcet_scale']):g}." if float(sc.get("wcet_scale", 1) or 1) != 1 else ""),
         "CPU utilization: publishers " + ", ".join(f"E{p} {float(u):.3f}" for p, u in pub.items())
         + "; subscribers " + ", ".join(f"E'{k} {float(u):.3f}" for k, u in sub.items()) + ".",
     ]

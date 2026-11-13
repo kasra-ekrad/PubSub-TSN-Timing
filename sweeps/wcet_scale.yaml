@@ -1,0 +1,6 @@
+# Scenario 5: all WCETs multiplied by a factor; same seed = same system, only WCETs scaled.
+name: wcet_scale
+scenario: ../scenario.yaml
+parameter: wcet_scale
+values: [0.5, 1.0, 2.0, 4.0, 8.0]
+seeds: [1, 30]

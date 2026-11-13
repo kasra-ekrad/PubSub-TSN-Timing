@@ -15,7 +15,7 @@ Options: `--num-queues` (default 4), `--with-be`, `--tools-dir` (exes elsewhere)
 
 Reading the network outputs: AVB `final_new_results.txt` (block ID; priority 2 = A, 3 = B; deadline ps; WCRT ps) → R^max per WG via `AVB_Input_map.csv`. ST `Schedule.txt` (message; link; queue; gate open ns; gate close ns) → per instance k: arrival a_k = last-link close − kT, start s_k = first-link open − kT; A_max, J = A_max − A_min. ST end-to-end = A_min + R^s (= R^p + R^max + R^s − J' with R^max = A_max − R^p), valid only if R^p ≤ min s_k (else net status `st_not_ready`).
 
-Python 3.10+, needs `pyyaml`, `numpy` and `scipy` (and `pytest` for the tests).
+Python 3.10+, needs `pyyaml`, `numpy`, `scipy` and `matplotlib` (and `pytest` for the tests): `python -m pip install -r requirements.txt`.
 
 | File | Content |
 |---|---|
@@ -30,6 +30,8 @@ Python 3.10+, needs `pyyaml`, `numpy` and `scipy` (and `pytest` for the tests).
 | `network_results.py` | Reads `Schedule.txt` and `final_new_results.txt` back into R^max, ST arrival times and jitter per WG |
 | `run_all.py` | Runs steps 1–8 in order, including the two exes |
 | `generate_system.py`, `scenario.yaml` | Generate a system YAML from a scenario (counts, ranges, shares, WCET model) |
+| `run_sweep.py`, `plot_sweep.py`, `sweeps/` | Parameter sweeps (scenarios 2 and 5) and their plots |
+| `case_study.yaml`, `plot_case_study.py` | Case study (scenario 1) and its plots |
 | `link_report.py` | Utilization per link: messages, lengths and periods on each link |
 | `avb_input_generator.py` | Port of `AVB_analysis_input_generator.m`: writes `AVB_Input.txt` from the schedule and the AVB/BE messages |
 | `example_system.yaml` | `ex1` (placeholder WCETs, ring topology), `davis` (publisher only), `jitter_demo` (hand-checkable) |
@@ -46,6 +48,28 @@ python avb_input_generator.py --exp-id 1 [--dir DIR] [--with-be]
 python publisher_rta.py example_system.yaml                             # publishers only
 python -m pytest -q
 ```
+
+## Evaluation (scenarios 1, 2 and 5)
+
+**Scenario 1, case study.** `case_study.yaml` is a robot cell (3 publishers, 2 subscribers, 2 switches, 7 WGs of which 2 ST, best-effort traffic from a maintenance PC). WCETs come from the midpoints of the scenario.yaml ranges.
+
+```
+python run_all.py case_study.yaml --system case_study --exp-id 1 --with-be
+python plot_case_study.py Experiment1
+```
+
+Writes `case_study_table.csv`, `case_study_breakdown.png` (R per WG split into publisher / network / jitter / subscriber) and `case_study_links.png` (link utilization by class) into `Experiment1`.
+
+**Scenario 2, sweeps** and **scenario 5, WCET sensitivity.** A sweep file in `sweeps/` varies one scenario parameter over a list of values, with the same seeds for every value:
+
+```
+python run_sweep.py sweeps/hops.yaml            # runs every value x seed through all 8 steps
+python plot_sweep.py sweep_runs/hops            # e2e_boxplot.png, breakdown.png, schedulable.png, summary.csv
+```
+
+Sweep files: `wgs_per_publisher`, `fan_in`, `message_size`, `hops`, `st_share`, `best_effort` (run with `--with-be`), `wcet_scale` (scenario 5). Each run's files stay in `sweep_runs/<name>/Experiment<ID>/`, its printed output in `logs/`, and all numbers in `results_wg.csv` (per WG) and `results_runs.csv` (per run). `--seeds 1 5` overrides the seeds, `--resume` skips finished runs, `--collect-only` rebuilds the CSV files.
+
+The end-to-end delay is split as R = R^p + (R^max − J') + J' + (R^s − J'): publisher, network up to the earliest arrival, network jitter, subscriber after arrival.
 
 ## Generating a system
 

@@ -1,0 +1,7 @@
+# Scenario 2: share of ST WGs -> ST windows interfering with AVB; ST vs AVB end-to-end.
+name: st_share
+scenario: ../scenario.yaml
+set: {wgs_per_publisher: [3, 4]}
+parameter: traffic.st_share
+values: [0.0, 0.2, 0.4, 0.6]
+seeds: [1, 30]

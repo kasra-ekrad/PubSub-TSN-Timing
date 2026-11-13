@@ -11,10 +11,10 @@ seed: 1                    # same scenario + seed -> same system
 topology:
   # The topology, fixed: the same for every seed. End nodes positive, switches negative,
   # same format as network.links in the system YAML (full duplex).
-  links: [[1, -1], [-1, -2], [2, -2]]
-  publishers: [1]           # end nodes that are publishers
-  subscribers: [2]          # end nodes that are subscribers (each gets at least one WG)
-  best_effort_sources: []     # end nodes that only send best-effort traffic ([] = no BE traffic)
+  links: [[1, -1], [2, -1], [5, -1], [-1, -2], [3, -2], [4, -2], [6, -2]]
+  publishers: [1, 2]           # end nodes that are publishers
+  subscribers: [3, 4]          # end nodes that are subscribers (each gets at least one WG)
+  best_effort_sources: [5]     # end nodes that only send best-effort traffic ([] = no BE traffic)
   # Other end nodes (here 6) are connected but send and receive nothing.
   #
   # Alternative: let the generator build a line of switches -1 - -2 - ... (1 switch = star).
@@ -29,7 +29,7 @@ topology:
   #                              # get the same topology while --seed changes the rest
 
 wgs_per_publisher: [1, 4]
-periods: [500, 1000, 2000, 5000, 10000]   # whole us (ST and AVB inputs take integers)
+periods: [5000, 10000 , 20000, 30000]   # whole us (ST and AVB inputs take integers)
 period_weights: null       # optional, same length as periods; null = equal
 
 variables_per_wg: [2, 12]
@@ -51,7 +51,7 @@ traffic:                   # PLACEHOLDERS
 # then smaller WriterGroupId; rho = rank (number of WGs for the highest).
 
 best_effort:               # no BE traffic: flows: 0, no sources, or remove this section
-  flows: 0                 # each from a random best-effort source to a random subscriber
+  flows: 2                 # each from a random best-effort source to a random subscriber
   length: [64, 1542]       # bytes on the wire
   periods: [1000, 2000, 5000]
 
@@ -77,6 +77,8 @@ limits:
 # from Kirchberger (TU Wien 2022, open62541 PubSub at 80 MHz: encode 45.7 us,
 # UDP send 81.7 us, UDP receive 17.3 us, decode 387.2 us for one Int32 field)
 # and usual Linux UDP send/receive costs. Replace with measurements when available.
+wcet_scale: 1.0             # multiplies every WCET after drawing (sensitivity, scenario 5);
+                            # same seed -> same system, only the WCETs scaled
 wcet:
   publisher:
     collect:   {base: [0.1, 0.3], per_byte: [0.001, 0.003]}   # psi, per data type (bytes of the type)

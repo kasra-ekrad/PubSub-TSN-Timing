@@ -1,0 +1,149 @@
+# Case study (evaluation scenario 1): a robot cell with three publishers and two subscribers.
+# Topology: two switches in a line; the publishers and a maintenance PC (best effort) on -1,
+# the subscribers on -2. Times in us. WCETs from the midpoints of the scenario.yaml ranges:
+#   psi = 0.2 + 0.002*bytes(type)   phi = 0.55 + 0.1*fields   C3 = 0.75 + 0.2*DSMs
+#   C4 = 6.5 + 0.002*NM bytes       C1 = 6.5 + 0.002*NM bytes  C2 = 0.2
+#   phi' = 1.25 + 0.3*fields        psi' = 0.2 + 0.002*bytes(type)
+# Priorities are global: the ST WGs (1, 3) above all AVB WGs, then shorter period first.
+time_unit: us
+systems:
+  - name: case_study
+    publishers:
+      - p: 1                      # I/O gateway (sensors, encoders)
+        node: 1
+        writer_groups:
+          - n: 1                  # axis encoder positions (ST)
+            writer_group_id: 1
+            T: 500
+            rho: 7
+            types: [Int32, Int32, Int32, Int32, Int32, Int32, Boolean, Boolean]
+            psi: [0.208, 0.208, 0.208, 0.208, 0.208, 0.208, 0.202, 0.202]
+            phi: [1.35]
+            C3: 0.95
+            C4: 6.592
+          - n: 2                  # temperatures/pressures
+            writer_group_id: 2
+            T: 2000
+            rho: 5
+            types: [Float, Float, Float, Float, Float, Float, Float, Float]
+            psi: [0.208, 0.208, 0.208, 0.208, 0.208, 0.208, 0.208, 0.208]
+            phi: [0.95, 0.95]
+            C3: 1.15
+            C4: 6.614
+      - p: 2                      # PLC (cell control)
+        node: 2
+        writer_groups:
+          - n: 1                  # motion setpoints (ST)
+            writer_group_id: 3
+            T: 1000
+            rho: 6
+            types: [Double, Double, Double, Double, Double, Double]
+            psi: [0.216, 0.216, 0.216, 0.216, 0.216, 0.216]
+            phi: [1.15]
+            C3: 0.95
+            C4: 6.636
+          - n: 2                  # cell status
+            writer_group_id: 4
+            T: 5000
+            rho: 4
+            types: [Int16, Int16, Int16, Int16, Boolean, Boolean, Boolean, Boolean]
+            psi: [0.204, 0.204, 0.204, 0.204, 0.202, 0.202, 0.202, 0.202]
+            phi: [1.35]
+            C3: 0.95
+            C4: 6.564
+          - n: 3                  # production counters
+            writer_group_id: 5
+            T: 10000
+            rho: 2
+            types: [UInt32, UInt32, UInt32, UInt32, UInt32, UInt32, DateTime, DateTime]
+            psi: [0.208, 0.208, 0.208, 0.208, 0.208, 0.208, 0.216, 0.216]
+            phi: [1.35]
+            C3: 0.95
+            C4: 6.62
+      - p: 3                      # Vision system
+        node: 3
+        writer_groups:
+          - n: 1                  # part pose
+            writer_group_id: 6
+            T: 10000
+            rho: 1
+            types: ["Float[16]", Float, Float, Float, Float, Int32]
+            psi: [0.336, 0.208, 0.208, 0.208, 0.208, 0.208]
+            phi: [0.65, 1.05]
+            C3: 1.15
+            C4: 6.726
+          - n: 2                  # quality result
+            writer_group_id: 7
+            T: 5000
+            rho: 3
+            types: ["String(32)", Int32, Int32, Boolean]
+            psi: [0.272, 0.208, 0.208, 0.202]
+            phi: [0.95]
+            C3: 0.95
+            C4: 6.63
+    subscribers:
+      - k: 1                      # Robot drive controller
+        node: 4
+        transactions:
+          - m: 1                  # receives WG 1 (axis encoder positions)
+            writer_group_id: 1
+            C1: 6.592
+            C2: 0.2
+            phi: [3.65]
+            psi: [0.208, 0.208, 0.208, 0.208, 0.208, 0.208, 0.202, 0.202]
+          - m: 2                  # receives WG 3 (motion setpoints)
+            writer_group_id: 3
+            C1: 6.636
+            C2: 0.2
+            phi: [3.05]
+            psi: [0.216, 0.216, 0.216, 0.216, 0.216, 0.216]
+          - m: 3                  # receives WG 6 (part pose)
+            writer_group_id: 6
+            C1: 6.726
+            C2: 0.2
+            phi: [1.55, 2.75]
+            psi: [0.336, 0.208, 0.208, 0.208, 0.208, 0.208]
+      - k: 2                      # HMI / edge gateway
+        node: 5
+        transactions:
+          - m: 1                  # receives WG 2 (temperatures/pressures)
+            writer_group_id: 2
+            C1: 6.614
+            C2: 0.2
+            phi: [2.45, 2.45]
+            psi: [0.208, 0.208, 0.208, 0.208, 0.208, 0.208, 0.208, 0.208]
+          - m: 2                  # receives WG 4 (cell status)
+            writer_group_id: 4
+            C1: 6.564
+            C2: 0.2
+            phi: [3.65]
+            psi: [0.204, 0.204, 0.204, 0.204, 0.202, 0.202, 0.202, 0.202]
+          - m: 3                  # receives WG 5 (production counters)
+            writer_group_id: 5
+            C1: 6.62
+            C2: 0.2
+            phi: [3.65]
+            psi: [0.208, 0.208, 0.208, 0.208, 0.208, 0.208, 0.216, 0.216]
+          - m: 4                  # receives WG 7 (quality result)
+            writer_group_id: 7
+            C1: 6.63
+            C2: 0.2
+            phi: [2.45]
+            psi: [0.272, 0.208, 0.208, 0.202]
+    network:
+      links: [[1, -1], [2, -1], [3, -1], [6, -1], [-1, -2], [4, -2], [5, -2]]
+      full_duplex: true
+      bandwidth: 12.5            # bytes/us (100 Mbit/s), as the network tools
+      epsilon: 0
+      max_link_load: 90
+      messages:                  # ST: hard_real_time true; the AVB class is assigned in step 5
+        - {writer_group_id: 1, hard_real_time: true}
+        - {writer_group_id: 2, hard_real_time: false}
+        - {writer_group_id: 3, hard_real_time: true}
+        - {writer_group_id: 4, hard_real_time: false}
+        - {writer_group_id: 5, hard_real_time: false}
+        - {writer_group_id: 6, hard_real_time: false}
+        - {writer_group_id: 7, hard_real_time: false}
+      best_effort:               # maintenance PC (node 6) streaming to the edge gateway
+        - {name: camera_stream, source: 6, destination: 5, length: 1542, period: 2000}
+        - {name: log_upload, source: 6, destination: 5, length: 600, min_inter_arr_time: 10000}

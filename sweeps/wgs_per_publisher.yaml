@@ -1,0 +1,6 @@
+# Scenario 2: more WGs on each publisher -> more blocking/interference on the publisher.
+name: wgs_per_publisher
+scenario: ../scenario.yaml
+parameter: wgs_per_publisher
+values: [1, 3, 5, 10]
+seeds: [1, 2]

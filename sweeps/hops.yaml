@@ -1,0 +1,6 @@
+# Scenario 2: longer line of switches -> more hops (publishers and subscribers on opposite halves).
+name: hops
+scenario: ../scenario_line.yaml
+parameter: topology.switches
+values: [1, 2, 3, 4, 6]
+seeds: [1, 30]

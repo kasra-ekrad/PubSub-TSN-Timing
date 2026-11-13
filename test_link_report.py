@@ -20,7 +20,8 @@ def test_shared_link_by_hand():
     assert l["bytes_per_us"] == rate
     assert l["utilization"] == rate / Fraction(25, 2)
     assert l["ST"] == Fraction(93, 500) and l["BE"] == Fraction(1542, 1000) + Fraction(600, 5000)
-    assert sum(l[c] for c in link_report.CLASSES) == rate
+    assert sum(l[c] for c in link_report.ALL_CLASSES) == rate
+    assert l["AVB_A"] == l["AVB_B"] == 0          # classes are only known after step 5
 
 
 def test_every_architecture_row_listed():

@@ -1,0 +1,6 @@
+# Scenario 2: more variables per WG -> larger NMs (C^N, R^p, R^s).
+name: message_size
+scenario: ../scenario.yaml
+parameter: variables_per_wg
+values: [2, 4, 8, 16, 32, 64]
+seeds: [1, 30]

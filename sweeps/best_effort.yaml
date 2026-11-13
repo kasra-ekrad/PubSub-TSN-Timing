@@ -1,0 +1,7 @@
+# Scenario 2: number of best-effort flows (from node 5) -> blocking of AVB.
+# Pass --with-be to run_sweep.py so the AVB analysis sees them.
+name: best_effort
+scenario: ../scenario.yaml
+parameter: best_effort.flows
+values: [0, 1, 2, 4, 6]
+seeds: [1, 30]
