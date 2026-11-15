@@ -13,3 +13,4 @@ seeds for every value. Run one with `python run_sweep.py sweeps/<file>.yaml`, th
 | st_share.yaml | share of ST WGs | scenario.yaml | ST windows vs AVB, ST vs AVB end-to-end |
 | best_effort.yaml | best-effort flows | scenario.yaml | BE blocking of AVB |
 | wcet_scale.yaml | factor on all WCETs (scenario 5) | scenario.yaml | robustness to the WCET estimates |
+| validation.yaml | WGs per publisher, 50 seeds | scenario.yaml | many systems for `validate.py --sweep` (safety and tightness) |

@@ -1,0 +1,40 @@
+# P1: size of one WG -> response times on its own publisher (publisher analysis only).
+#   python p1_publisher_size.py experiments/p1.yaml
+#
+# One publisher. The WG under analysis ("target") grows from 1 variable until its
+# NetworkMessage reaches the Ethernet MTU (IP packet <= 1500 bytes); every other WG stays
+# exactly as given here. Priorities follow the list order: `higher` (first = highest),
+# then the target, then `lower`. No ST: every WG is an ordinary (AVB) WG.
+# Times in us; sizes in bytes.
+
+name: p1
+publisher_id_type: UInt16
+
+# WCET model (the structure of scenario.yaml, with the midpoints of its ranges as fixed
+# values, so the curves show the effect of size only):
+#   psi  (collect, per variable)  = base + per_byte * size(type)
+#   phi  (DSW, per DSM)           = base + per_field * fields in the DSM
+#   C3   (WG, NM assembly)        = base + per_dsm * DSMs
+#   C4   (transport)              = base + per_byte * NM bytes
+wcet:
+  collect:   {base: 0.2,  per_byte: 0.002}
+  dsw:       {base: 0.55, per_field: 0.1}
+  wg:        {base: 0.75, per_dsm: 0.2}
+  transport: {base: 6.5,  per_byte: 0.002}
+
+target:
+  writer_group_id: 3
+  T: 2000
+  type: Float          # type of every variable added
+  dsms: 1              # variables are split evenly over this many DSMs
+  v_from: 1
+  v_to: max            # max = the largest v whose NM still fits the MTU; or a number
+  v_step: 1            # variables between two computed points; the MTU size is always included
+
+# Constant WGs. `type` with `v` variables, split over `dsms` DSMs.
+higher:
+  - {writer_group_id: 1, T: 500,  type: Double, v: 8,  dsms: 1}
+  - {writer_group_id: 2, T: 1000, type: Float,  v: 16, dsms: 2}
+lower:
+  - {writer_group_id: 4, T: 2000, type: Float,  v: 32, dsms: 2}
+  - {writer_group_id: 5, T: 5000, type: Double, v: 48, dsms: 4}

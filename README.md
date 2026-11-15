@@ -32,6 +32,8 @@ Python 3.10+, needs `pyyaml`, `numpy`, `scipy` and `matplotlib` (and `pytest` fo
 | `generate_system.py`, `scenario.yaml` | Generate a system YAML from a scenario (counts, ranges, shares, WCET model) |
 | `run_sweep.py`, `plot_sweep.py`, `sweeps/` | Parameter sweeps (scenarios 2 and 5) and their plots |
 | `case_study.yaml`, `plot_case_study.py` | Case study (scenario 1) and its plots |
+| `validate.py`, `sim_core.py`, `sim_tsn.py`, `plot_validation.py` | Safety and tightness: simulate the analysed system and check every instance against the bounds |
+| `publisher_jitter_example.yaml` | Counterexample: publisher output jitter exceeds the subscriber bound |
 | `link_report.py` | Utilization per link: messages, lengths and periods on each link |
 | `avb_input_generator.py` | Port of `AVB_analysis_input_generator.m`: writes `AVB_Input.txt` from the schedule and the AVB/BE messages |
 | `example_system.yaml` | `ex1` (placeholder WCETs, ring topology), `davis` (publisher only), `jitter_demo` (hand-checkable) |
@@ -70,6 +72,78 @@ python plot_sweep.py sweep_runs/hops            # e2e_boxplot.png, breakdown.png
 Sweep files: `wgs_per_publisher`, `fan_in`, `message_size`, `hops`, `st_share`, `best_effort` (run with `--with-be`), `wcet_scale` (scenario 5). Each run's files stay in `sweep_runs/<name>/Experiment<ID>/`, its printed output in `logs/`, and all numbers in `results_wg.csv` (per WG) and `results_runs.csv` (per run). `--seeds 1 5` overrides the seeds, `--resume` skips finished runs, `--collect-only` rebuilds the CSV files.
 
 The end-to-end delay is split as R = R^p + (R^max − J') + J' + (R^s − J'): publisher, network up to the earliest arrival, network jitter, subscriber after arrival.
+
+## Safety and tightness: simulation against the analysis
+
+`validate.py` simulates a system that `run_all.py` has analysed and checks every instance
+against the bounds. Per instance it records r (release), f (hand-over to the NIC),
+a (arrival) and fs (subscriber chain done):
+
+| Part | Observed | Bound |
+|---|---|---|
+| publisher | f − r | R^p |
+| network | AVB: a − f (also ≥ R^min); ST: a − r | R^max; A_max |
+| subscriber | fs − ν, ν = r + R^p + R^min (AVB) or r + A_min (ST): the nominal arrival R^s is measured from | R^s |
+| end-to-end | fs − r | R |
+
+```
+python run_all.py generated.yaml --system gen --exp-id 6          # as before
+python validate.py generated.yaml --exp-id 6                      # Levels A and B, four modes
+python plot_validation.py Experiment6
+
+python run_sweep.py sweeps/validation.yaml                        # many systems
+python validate.py --sweep sweep_runs/validation
+python plot_validation.py sweep_runs/validation
+
+python validate.py example_system.yaml --system jitter_demo       # YAML R_max only: Level A
+python validate.py publisher_jitter_example.yaml                  # the counterexample
+```
+
+**Modes** (`--modes`): `random-arbitrary` (random phase per WG, execution times in
+[bcet × WCET, WCET], random network delays; `--runs` × `--hyperperiods`) and `random-part14`
+(Part 14 6.3.1.1.1: cycles start at multiples of the PublishingInterval of the node's clock,
+one random clock offset per node, 0 for nodes with ST) give the distributions.
+`adv-arbitrary` and `adv-part14` build, per WG, release patterns that aim at its bounds
+(WCETs): the publisher critical instant with blocking 1 ps before (`pub`), the frames of
+every interfering WG arriving together with the WG's frame and bunching after it (`sub`),
+and that plus each other publisher's interfering stream leaving at its own critical
+instant, so its frames bunch by the publisher's output jitter too (`jit`).
+
+**Levels** (`--levels`): **A** replaces the network by the analysis' delay box
+[R^min, R^max] (ST: the schedule's gate times), so it checks the publisher and subscriber
+analyses and their composition. **B** simulates the network (`sim_tsn.py`): gates from
+`Schedule.txt` and `AVB_Input.txt` (ST windows, guard band), credit-based shapers for
+classes A and B (credit frozen while the gate is closed), strict priority, store and
+forward; best effort as in the AVB analysis input (`--be`). Level B checks the network
+tools' R^max too. Its idleSlope (`--idle-slope srp | load | A=x,B=y`, default SRP with
+class measurement intervals 125/250 us) must be the one AVB_analysis.exe assumes; otherwise
+the two describe different networks. Adversarial runs in Level B use the Level A release
+patterns plus `--search` random variants of the other publishers' phases.
+
+**Outputs** in the experiment folder: `validation.csv` (per level, mode and WG: bounds,
+largest observed values, observed/bound, violations, the arrival spread max(a−r) − min(a−r)
+next to J', random-mode quantiles), `validation_violations.csv` (r, f, a, fs of the
+instances above a bound, to reproduce them), `validation.json`. `plot_validation.py`
+writes `validation_scatter_<L>.png` (observed vs bound, four panels), `validation_ratio_<L>.png`
+(share of WGs vs observed/bound), `validation_e2e_<L>.png` (one experiment: per-WG
+distribution, adversarial maxima and bound) and `validation_summary.csv`.
+
+A simulation can only show violations; it cannot prove a bound. An adversarial value equal
+to the bound shows that the bound is reached for that WG (no safe analysis can be lower).
+
+## Sensitivity experiments (analysis only)
+
+**P1, size of one WG → its publisher.** One publisher; the WG under analysis grows one
+variable at a time until its NM reaches the MTU, every other WG stays constant
+(`experiments/p1.yaml`: WCET model with fixed values, priorities in list order).
+
+```
+python p1_publisher_size.py experiments/p1.yaml        # -> results/p1/
+```
+
+Writes `p1_results.csv` (per size and WG: W, B, I = R − B − W, R, R/T, status),
+`p1_lines.png` (R of every WG and W of the target vs variables; NM bytes on the top axis)
+and `p1_bars.png` (R of every WG at the smallest and largest size). No network, no exes.
 
 ## Generating a system
 

@@ -1,0 +1,35 @@
+# Counterexample to the assumption "no publisher jitter" (validate.py finds it).
+# WG 10 (T = 100, W = 1) shares publisher E1 with WG 11 (W = 95, higher priority, T = 1000):
+# it hands over its NM 1 us after release in most periods, but 96 us after release when
+# WG 11 is released with it (R^p = 96). Its network jitter J' is 0, so the subscriber
+# analysis assumes its frames arrive at least T - J' = 100 us apart. They can arrive
+# 100 - 95 = 5 us apart: then two WG 10 transactions (W' = 10 each) run before WG 20.
+#   analysis:   R^s(WG 20) = 0 + 10 + 10 = 20 us,  R = 1 + 2 + 20 = 23 us
+#   simulation: WG 20 finishes 30 us after its nominal arrival (adv-arbitrary)
+#   python validate.py publisher_jitter_example.yaml
+time_unit: us
+systems:
+  - name: pubjit
+    publishers:
+      - p: 1
+        node: 1
+        writer_groups:
+          - {n: 1, writer_group_id: 10, T: 100,  rho: 3, types: [Boolean], psi: [1],  phi: [0], C3: 0, C4: 0}
+          - {n: 2, writer_group_id: 11, T: 1000, rho: 4, types: [Boolean], psi: [95], phi: [0], C3: 0, C4: 0}
+      - p: 2
+        node: 2
+        writer_groups:
+          - {n: 1, writer_group_id: 20, T: 100,  rho: 1, types: [Boolean], psi: [1],  phi: [0], C3: 0, C4: 0}
+    subscribers:
+      - k: 1
+        node: 3
+        transactions:
+          - {m: 1, writer_group_id: 10, C1: 10, C2: 0, phi: [0], psi: [0]}
+          - {m: 2, writer_group_id: 20, C1: 10, C2: 0, phi: [0], psi: [0]}
+    network:
+      links: [[1, -1], [2, -1], [3, -1]]
+      bandwidth: 91
+      epsilon: 0
+      messages:
+        - {writer_group_id: 10, hard_real_time: false, R_max: 2}
+        - {writer_group_id: 20, hard_real_time: false, R_max: 2}

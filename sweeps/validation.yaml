@@ -1,0 +1,10 @@
+# Many generated systems for the safety and tightness check (validate.py):
+#   python run_sweep.py sweeps/validation.yaml
+#   python validate.py --sweep sweep_runs/validation
+#   python plot_validation.py sweep_runs/validation
+# Three sizes x 50 seeds = 150 systems through all 8 steps.
+name: validation
+scenario: ../scenario.yaml
+parameter: wgs_per_publisher
+values: [[2, 3], [4, 6], [6, 9]]
+seeds: [1, 50]
