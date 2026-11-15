@@ -1,0 +1,40 @@
+# CPU-speed study over many generated systems: which side, publisher or subscriber, limits
+# how much slower the CPUs may get, and how this depends on messages produced and received.
+#   python cpu_study.py experiments/cpu_study.yaml          (all steps, exes once per system)
+#   python cpu_study.py experiments/cpu_study.yaml --plot-only
+#
+# For every combination of the grid values and every seed: a system is generated from the
+# base scenario, run through run_all.py (the exes run once), and then for each side the
+# critical scaling factor is computed (largest k with every WG schedulable when that side's
+# WCETs are multiplied by k; the network results are reused, they do not depend on WCETs).
+
+name: cpu_study
+scenario: ../scenario_line.yaml        # base scenario (generated line of switches)
+set:                                   # fixed changes to the base scenario
+  topology.switches: 2
+  topology.placement: split            # publishers on one side, subscribers on the other
+
+# The grid: every combination of these values (dotted paths into the scenario; a mapping
+# value sets several keys of that section). The first two parameters are the axes of the
+# heat map.
+grid:
+  wgs_per_publisher:                   # messages produced by each publisher (exact counts)
+    - [1, 1]
+    - [2, 2]
+    - [4, 4]
+    - [6, 6]
+    - [8, 8]
+    - [10, 10]
+  topology:                            # publishers : subscribers -> fan-in (4:1) ... fan-out (1:4)
+    - {publishers: 6, subscribers: 1}
+    - {publishers: 4, subscribers: 1}
+    - {publishers: 2, subscribers: 1}
+    - {publishers: 1, subscribers: 1}
+    - {publishers: 1, subscribers: 2}
+    - {publishers: 1, subscribers: 4}
+    - {publishers: 1, subscribers: 6}
+
+seeds: [1, 50]                         # seeds 1..10 for every grid cell (or a list: [3, 7])
+
+k_max: 1024                            # search range of the critical scaling factor (systems that never fail up to it are left out of the plots)
+dk: 0.1                                # dR/dk: change of R when a side's WCETs are x (1 + dk)

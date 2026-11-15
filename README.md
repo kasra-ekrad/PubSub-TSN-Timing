@@ -145,6 +145,71 @@ Writes `p1_results.csv` (per size and WG: W, B, I = R − B − W, R, R/T, statu
 `p1_lines.png` (R of every WG and W of the target vs variables; NM bytes on the top axis)
 and `p1_bars.png` (R of every WG at the smallest and largest size). No network, no exes.
 
+Size budget: `python p1_publisher_size.py experiments/p1_budget.yaml` runs the same publisher
+with every WCET × 5 (`wcet_scale`, a slower device) and `budget: true`. The line chart gets
+an R/T panel, the first deadline miss of each WG is marked, and `p1_budget.csv` gives per WG
+the first NM size with R > T and the size budget: the largest NM with every WG schedulable.
+
+**P2, priority position of one WG → publisher, network, subscriber.** One publisher with five
+WGs and one subscriber that receives all of them (`experiments/p2.yaml`, line of two switches).
+The WG under analysis takes every priority position; all sizes stay fixed. Each position is one
+full `run_all.py` run with the exes.
+
+```
+python p2_priority.py experiments/p2.yaml               # -> results/p2/
+python p2_priority.py experiments/p2.yaml --plot-only   # redraw from p2_results.csv
+```
+
+Writes `p2_results.csv` (per position and WG: R^p, R^N = network R^max, R^min, J', R^s, R) and
+`p2_lines.png` (three panels: R^p, R^N, R^s against the position). Options as run_all.py:
+`--tools-dir`, `--runner`, `--num-queues`, `--folder-arg`; `--resume` skips finished positions.
+
+**Where to spend CPU speed (publisher vs subscriber).** The P2 system with a fixed priority
+order (`experiments/cpu_scale.yaml`). Every WCET of one side is multiplied by k (¼ … 16), the
+other side stays at k = 1; then the other way round, and both together. The exes run once
+(the network inputs do not depend on the WCETs) and their results are reused for every k.
+
+```
+python cpu_scale.py experiments/cpu_scale.yaml          # -> results/cpu_scale/
+python cpu_scale.py experiments/cpu_scale.yaml --plot-only
+```
+
+Writes `cpu_scale_results.csv` (per side, k and WG: R^p, R^N, J', R^s, R, statuses),
+`cpu_scale_critical.csv` (per side: the critical scaling factor, i.e. the largest k with
+R^p ≤ T and R^s ≤ T for every WG, and the WG/check that limits it), `cpu_scale_lines.png`
+(end-to-end R against k, publisher scaled | subscriber scaled) and `cpu_scale_bars.png`.
+
+**CPU-speed study over many systems (automated).** `experiments/cpu_study.yaml` gives a grid
+(default: WGs per publisher 1–8 × publishers:subscribers 4:1 … 1:4) and seeds. For every cell
+and seed one command generates the system, runs `run_all.py` (exes once), and computes the
+critical scaling factor of the publisher, the subscriber and both, plus dR/dk at k = 1.
+
+```
+python cpu_study.py experiments/cpu_study.yaml            # -> results/cpu_study/
+python cpu_study.py experiments/cpu_study.yaml --seeds 1 3 # fewer seeds
+python cpu_study.py experiments/cpu_study.yaml --resume    # reuse finished runs
+python cpu_study.py experiments/cpu_study.yaml --plot-only
+```
+
+Writes `cpu_study_runs.csv` (one row per system: grid values, sizes, k_pub, k_sub, k_both,
+what limits each, dR/dk), `cpu_study_heatmap.png` (median k_sub/k_pub per cell),
+`cpu_study_scatter.png` (k_pub vs k_sub per system) and `cpu_study_boxplots.png`.
+Any scenario parameter can be a grid axis (dotted path; a mapping sets several keys).
+
+**Comparison with Denzler et al.** One publisher, one subscriber, one WG, point-to-point at
+100 Mbit/s, no contention (`experiments/denzler.yaml`, with the papers' values): (1) one Int32,
+no VLAN tag, WCETs and maxima of "Static Timing Analysis of OPC UA PubSub" (2021); (2) 1–4
+UInt32, VLAN tag, WCETs and medians of "Timing Analysis of TSN-Enabled OPC UA PubSub" (2022).
+Each case is one `run_all.py` run with W = PublishCallback and W' = SubscribeCallback bound.
+
+```
+python denzler.py experiments/denzler.yaml               # -> results/denzler/
+python denzler.py experiments/denzler.yaml --plot-only
+```
+
+Writes `denzler_results.csv`, `denzler_static2021.png` and `denzler_sizes.png`: their upper
+bound, our bound and their measurement, each split into publisher, network and subscriber.
+
 ## Generating a system
 
 Instead of writing the YAML by hand, describe it in a scenario (`scenario.yaml`) and generate it:

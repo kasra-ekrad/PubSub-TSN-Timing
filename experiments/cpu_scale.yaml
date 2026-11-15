@@ -1,0 +1,43 @@
+# CPU speed: where does a slower (or faster) CPU hurt more, at the publisher or at the subscriber?
+#   python cpu_scale.py experiments/cpu_scale.yaml      (runs run_all.py with the exes once)
+#
+# The system of P2 (one publisher, one subscriber receiving all five WGs, two switches),
+# with the WGs in a fixed priority order. Every WCET of one side is multiplied by k,
+# the other side keeps k = 1; then the other way round; and both sides together.
+# The network inputs (lengths, periods, paths) do not depend on the WCETs, so the network
+# tools run once and their results are reused for every k.
+# Times in us; sizes in bytes.
+
+name: cpu_scale
+publisher_id_type: UInt16
+
+# k values: from k_min to k_max, `points` values evenly spaced on a log scale (plus k = 1)
+k_min: 0.25
+k_max: 16
+points: 49
+
+wcet:                     # publisher (as P1/P2)
+  collect:   {base: 0.2,  per_byte: 0.002}
+  dsw:       {base: 0.55, per_field: 0.1}
+  wg:        {base: 0.75, per_dsm: 0.2}
+  transport: {base: 6.5,  per_byte: 0.002}
+
+sub_wcet:                 # subscriber (as P2)
+  reception: {base: 6.5,  per_byte: 0.002}
+  filter:    {base: 0.2}
+  decode:    {base: 1.25, per_field: 0.3}
+  dispatch:  {base: 0.2,  per_byte: 0.002}
+
+# WGs in priority order (first = highest)
+wgs:
+  - {writer_group_id: 1, T: 1000,  type: Double, v: 8,   dsms: 1}
+  - {writer_group_id: 2, T: 10000, type: Float,  v: 16,  dsms: 2}
+  - {writer_group_id: 3, T: 20000, type: Float,  v: 100, dsms: 1}
+  - {writer_group_id: 4, T: 20000, type: Float,  v: 32,  dsms: 2}
+  - {writer_group_id: 5, T: 50000, type: Double, v: 48,  dsms: 4}
+
+network:
+  links: [[1, -1], [-1, -2], [2, -2]]   # publisher 1 - switch -1 - switch -2 - subscriber 2
+  bandwidth: 12.5
+  epsilon: 0
+  max_link_load: 90

@@ -1,0 +1,33 @@
+# P1, size budget: the same publisher as p1.yaml on a device 5 times slower (every WCET x 5),
+# so that growing WG 3 eventually makes a WG miss its deadline.
+#   python p1_publisher_size.py experiments/p1_budget.yaml
+# Adds an R/T panel, marks the first deadline miss of each WG and writes p1_budget.csv:
+# the size budget is the largest NM of WG 3 with every WG schedulable.
+
+name: p1_budget
+publisher_id_type: UInt16
+wcet_scale: 5
+budget: true
+
+wcet:
+  collect:   {base: 0.2,  per_byte: 0.002}
+  dsw:       {base: 0.55, per_field: 0.1}
+  wg:        {base: 0.75, per_dsm: 0.2}
+  transport: {base: 6.5,  per_byte: 0.002}
+
+target:
+  writer_group_id: 3
+  T: 2000
+  type: Float
+  dsms: 1
+  v_from: 1
+  v_to: max
+  v_step: 1
+
+
+higher:
+  - {writer_group_id: 1, T: 500,  type: Double, v: 10,  dsms: 1}
+  - {writer_group_id: 2, T: 1000, type: Float,  v: 20, dsms: 2}
+lower:
+  - {writer_group_id: 4, T: 2000, type: Float,  v: 35, dsms: 2}
+  - {writer_group_id: 5, T: 5000, type: Double, v: 50, dsms: 4}

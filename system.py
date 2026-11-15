@@ -127,6 +127,7 @@ class NetworkConfig:
     publisher_id_type: str       # UInt16 or UInt64 (Table A.1)
     vlan_tag: bool               # 802.1Q tag in the frame
     preamble_ifg: bool           # `length` includes preamble/SFD and IFG
+    payload_header: bool = False # UADP payload header in the NM (not in UADP-Periodic-Fixed)
 
     @property
     def architecture(self) -> list[tuple[int, int]]:
@@ -392,6 +393,7 @@ def _parse_network_config(net: dict, where: str) -> NetworkConfig:
         publisher_id_type=pid,
         vlan_tag=_bool(net.get("vlan_tag", True), f"{where}.vlan_tag"),
         preamble_ifg=_bool(net.get("preamble_ifg", True), f"{where}.preamble_ifg"),
+        payload_header=_bool(net.get("payload_header", False), f"{where}.payload_header"),
     )
 
 
@@ -422,7 +424,8 @@ def _parse_message(d: dict, where: str, cfg: NetworkConfig, routes: dict,
     idx, path = _route(d, where, routes, pub.node, sub.node)
 
     try:
-        size = uadp.frame_size(uadp.nm_size(list(wg.types), wg.Delta, cfg.publisher_id_type),
+        size = uadp.frame_size(uadp.nm_size(list(wg.types), wg.Delta, cfg.publisher_id_type,
+                                            cfg.payload_header),
                                cfg.vlan_tag)
     except uadp.SizeError as e:
         raise ConfigError(f"{where}: {e}") from None

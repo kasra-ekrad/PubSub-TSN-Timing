@@ -27,3 +27,14 @@ def test_p1_shapes(tmp_path):
     assert p1.main(["experiments/p1.yaml", "--out", str(tmp_path)]) == 0
     for f in ("p1_results.csv", "p1_lines.png", "p1_bars.png"):
         assert (tmp_path / f).is_file()
+
+
+def test_p1_size_budget(tmp_path):
+    """WCETs x 5: WG 3's blocking makes WG 1 (T 500) miss its deadline from NM 1052 B."""
+    spec = yaml.safe_load(open("experiments/p1_budget.yaml"))
+    rows, _ = p1.run(spec)
+    b = p1.size_budget(rows)
+    assert b[1]["first_miss_nm_bytes"] == 1052 and b[1]["last_ok_nm_bytes"] == 1048
+    assert all(b[g]["first_miss_v"] is None for g in (2, 3, 4, 5))
+    assert p1.main(["experiments/p1_budget.yaml", "--out", str(tmp_path)]) == 0
+    assert (tmp_path / "p1_budget.csv").is_file()

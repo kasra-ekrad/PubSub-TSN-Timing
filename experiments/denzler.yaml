@@ -1,0 +1,49 @@
+# Comparison with Denzler et al. One publisher, one subscriber, one WG, no contention,
+# point-to-point at 100 Mbit/s.
+#   python denzler.py experiments/denzler.yaml          (runs run_all.py with the exes)
+# Times in us.
+#
+# (1) static2021: Denzler, Fruhwirth, Kirchberger, Schoeberl, Kastner, "Static Timing Analysis
+#     of OPC UA PubSub" (2021), Table II: one Int32 value, open62541 on Patmos at 80 MHz,
+#     direct 2 m link, no TSN (no VLAN tag). Upper bounds = static WCET analysis; measured =
+#     highest value over 1000 messages.
+# (2) sizes2022: Denzler, Fruhwirth, Scheuchenstuhl, Schoeberl, Kastner, "Timing Analysis of
+#     TSN-Enabled OPC UA PubSub" (WFCS 2022): 1 to 4 uint32 values, VLAN-tagged. Upper
+#     bounds from Table I; measured = MEDIANS of Table II (point-to-point).
+# The papers give no bound for the network part (EthSend + NetworkDelay + EthRec is
+# "HW-dependent"); in the bound bars it is filled with the measured value of the same paper.
+
+name: denzler
+payload_header: true       # open62541 sends the UADP payload header (Count + DataSetWriterId):
+                           # 3 more bytes than UADP-Periodic-Fixed; 32 bit with VLAN -> 77-byte
+                           # frame, as reported in the 2022 paper
+
+network:
+  bandwidth: 12.5          # bytes/us (100 Mbit/s)
+  epsilon: 0
+  max_link_load: 90
+  links: [[1, 2]]          # point-to-point
+
+static2021:
+  T: 100000                # not reported; any T >= R gives the same result
+  type: Int32
+  values: 1
+  vlan_tag: false
+  bound:    {publish: 232.9,  network: 15.4, subscribe: 5544.29}
+  measured: {publish: 136.85, network: 15.4, subscribe: 513.08, e2e: 642.32}
+  measured_parts:          # inside the callbacks (highest observed)
+    publish:   {Encode: 45.67, UdpSend: 81.69, pre/post: 9.49}
+    subscribe: {UdpRec: 17.29, Decode: 387.22, pre/post: 108.57}
+
+sizes2022:
+  T: 100000                # PublishCallback period of the paper
+  type: UInt32
+  values: [1, 2, 3, 4]
+  vlan_tag: true
+  bound_publish:   {1: 271, 2: 342, 3: 435, 4: 528}
+  bound_subscribe: 15503.4
+  measured:                # medians
+    publish:   {1: 153.47, 2: 224.91, 3: 261.09, 4: 696.15}
+    network:   {1: 31.31,  2: 31.44,  3: 31.08,  4: 31.08}
+    subscribe: {1: 646.41, 2: 716.03, 3: 756.21, 4: 770.95}
+    e2e:       {1: 798.66, 2: 939.84, 3: 1015.85, 4: 1464.93}

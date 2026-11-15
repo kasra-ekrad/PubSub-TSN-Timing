@@ -104,3 +104,10 @@ def test_mat_files_round_trip(tmp_path):
     rows = open(f"{folder}/message_map.csv").read().splitlines()
     assert rows[1].startswith("1,TT,1,,True") and rows[7].startswith("7,BE,,camera,False")
     assert len(rows) == 9
+
+
+def test_payload_header_size():
+    # Part 14 7.2.4.5.2/3: Count + DataSetWriterIds, Sizes only if more than one DSM
+    assert uadp.nm_size(["UInt32"], 1, payload_header=True) == uadp.nm_size(["UInt32"], 1) + 3
+    assert uadp.nm_size(["UInt32"] * 2, 2, payload_header=True) == uadp.nm_size(["UInt32"] * 2, 2) + 1 + 4 + 4
+    assert uadp.frame_size(uadp.nm_size(["UInt32"], 1, payload_header=True)).frame == 77   # Denzler 2022

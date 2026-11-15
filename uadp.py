@@ -12,7 +12,8 @@ NetworkMessage header (Figure A.1 / Table A.1)
                  GroupVersion    4
                  NetworkMessageNumber 2
                  SequenceNumber  2
-    PayloadHeader                disabled (no Count, DataSetWriterIds or Sizes)
+    PayloadHeader                disabled (no Count, DataSetWriterIds or Sizes); optional
+                                 (network.payload_header: true): 1 + 2 n, plus 2 n Sizes if n > 1
     SecurityHeader, Timestamp, PicoSeconds, ExtendedFlags2: disabled
     -> 13 + PublisherId bytes
 
@@ -100,12 +101,21 @@ class FrameSize:
         return self.wire if preamble_ifg else self.frame
 
 
-def nm_size(types: list[str], n_dsm: int, publisher_id_type: str = "UInt16") -> int:
-    """Bytes of one UADP-Periodic-Fixed NetworkMessage."""
+def payload_header_size(n_dsm: int) -> int:
+    """UADP DataSet payload header (7.2.4.5.2): Count (Byte) + DataSetWriterIds (UInt16[Count]),
+    plus the Sizes (UInt16[Count]) of the DataSet payload (7.2.4.5.3), omitted if Count is one."""
+    return 1 + 2 * n_dsm + (2 * n_dsm if n_dsm > 1 else 0)
+
+
+def nm_size(types: list[str], n_dsm: int, publisher_id_type: str = "UInt16",
+            payload_header: bool = False) -> int:
+    """Bytes of one UADP-Periodic-Fixed NetworkMessage; payload_header=True adds the UADP
+    payload header (bit 6 of UADPFlags set, as open62541 sends by default)."""
     if publisher_id_type not in PUBLISHER_ID_BYTES:
         raise SizeError(f"publisher_id_type must be UInt16 or UInt64 (Table A.1), got {publisher_id_type!r}")
     header = NM_HEADER_FIXED + PUBLISHER_ID_BYTES[publisher_id_type]
-    return header + n_dsm * DSM_HEADER + sum(field_size(t) for t in types)
+    extra = payload_header_size(n_dsm) if payload_header else 0
+    return header + extra + n_dsm * DSM_HEADER + sum(field_size(t) for t in types)
 
 
 def frame_size(nm: int, vlan_tag: bool = True) -> FrameSize:

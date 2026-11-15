@@ -12,6 +12,10 @@ Writes into --out (default results/<name>):
     p1_results.csv   one row per (v, WG)
     p1_lines.png     R of every WG and W of the target against the target's NM size
     p1_bars.png      R of every WG at the smallest and the largest size
+    p1_budget.csv    (with `budget: true`) per WG the first size at which R > T, and the
+                     size budget: the largest NM with every WG schedulable; the line chart
+                     then gets an R/T panel and marks the first deadline miss of each WG
+Spec options: wcet_scale (multiplies every WCET of the model: a slower device), budget.
 What the analysis predicts (non-preemptive, chain = one job):
     target        R grows with W (its own execution time), B and I stay constant
     lower WGs     the target is in their interference: R grows by (instances of the
@@ -75,9 +79,15 @@ def max_variables(target: dict, pid: str) -> int:
         v += 1
 
 
+def scaled_wcet(spec: dict) -> dict:
+    """The WCET model with every value multiplied by wcet_scale (default 1): a slower device."""
+    k = _f(spec.get("wcet_scale", 1))
+    return {task: {key: str(_f(x) * k) for key, x in vals.items()} for task, vals in spec["wcet"].items()}
+
+
 def build(spec: dict, v: int) -> tuple[dict, dict[int, str], dict[int, int]]:
     """System dict for target size v; role and NM bytes per WG."""
-    pid, wcet = spec.get("publisher_id_type", "UInt16"), spec["wcet"]
+    pid, wcet = spec.get("publisher_id_type", "UInt16"), scaled_wcet(spec)
     order = [(w, "higher") for w in spec.get("higher", [])] + [({**spec["target"], "v": v}, "target")] \
         + [(w, "lower") for w in spec.get("lower", [])]
     wgs, role, nm = [], {}, {}
@@ -91,7 +101,7 @@ def build(spec: dict, v: int) -> tuple[dict, dict[int, str], dict[int, int]]:
 
 def crossover(spec: dict) -> int | None:
     """Smallest v at which the target's W exceeds the W of every lower-priority WG."""
-    pid, wcet, t = spec.get("publisher_id_type", "UInt16"), spec["wcet"], spec["target"]
+    pid, wcet, t = spec.get("publisher_id_type", "UInt16"), scaled_wcet(spec), spec["target"]
     lower = [sum(_f(x) for x in d["psi"] + d["phi"] + [d["C3"], d["C4"]])
              for d in (wg_dict(w, wcet, pid, 0, 0) for w in spec.get("lower", []))]
     if not lower:
@@ -127,6 +137,24 @@ def run(spec: dict) -> tuple[list[dict], dict[int, str]]:
     return rows, role
 
 
+def size_budget(rows: list[dict]) -> dict[int, dict]:
+    """Per WG: the first target size at which it is no longer schedulable (R > T or overload)
+    and the largest size before it. 'budget' is the largest NM with every WG schedulable."""
+    vs = sorted({r["v"] for r in rows})
+    at = {(r["v"], r["wg"]): r for r in rows}
+    out = {}
+    for g in sorted({r["wg"] for r in rows}):
+        miss = next((v for v in vs if at[(v, g)]["status"] != "ok"), None)
+        ok = [v for v in vs if miss is None or v < miss]
+        out[g] = {"wg": g, "role": at[(vs[0], g)]["role"], "T": at[(vs[0], g)]["T"],
+                  "first_miss_v": miss,
+                  "first_miss_nm_bytes": None if miss is None else at[(miss, g)]["target_nm_bytes"],
+                  "first_miss_status": None if miss is None else at[(miss, g)]["status"],
+                  "last_ok_v": ok[-1] if ok else None,
+                  "last_ok_nm_bytes": at[(ok[-1], g)]["target_nm_bytes"] if ok else None}
+    return out
+
+
 def write_csv(rows: list[dict], path: str) -> None:
     with open(path, "w", newline="", encoding="utf-8") as f:
         w = csv.DictWriter(f, fieldnames=list(rows[0]))
@@ -147,7 +175,12 @@ def lines(rows: list[dict], spec: dict, path: str) -> str:
     for r in rows:
         by.setdefault(r["wg"], []).append(r)
     order = [g for role in ("higher", "target", "lower") for g in sorted(by) if by[g][0]["role"] == role]
-    fig, ax = plt.subplots(figsize=(7.4, 4.4))
+    budget = spec.get("budget")
+    if budget:
+        fig, (ax, ax2) = plt.subplots(2, 1, figsize=(7.4, 5.6), sharex=True,
+                                      gridspec_kw={"height_ratios": [1.9, 1.6], "hspace": 0.08})
+    else:
+        fig, ax = plt.subplots(figsize=(7.4, 4.4))
     count = {"higher": 0, "lower": 0}
     labels = []
     t_rows = by[tg]
@@ -169,9 +202,17 @@ def lines(rows: list[dict], spec: dict, path: str) -> str:
         ax.plot([r["target_nm_bytes"] for r in rs], [r["R"] for r in rs], color=COL[role], linewidth=2, linestyle=style,
                 label=name)
         labels.append((rs[-1]["target_nm_bytes"], rs[-1]["R"], f"WG {g}", COL[role]))
-        miss = [r for r in rs if r["status"] != "ok"]
-        if miss:
-            ax.scatter([r["target_nm_bytes"] for r in miss], [r["R"] for r in miss], s=14, color=COL[role], zorder=4)
+        if budget:
+            ax2.plot([r["target_nm_bytes"] for r in rs], [r["R_over_T"] for r in rs], color=COL[role],
+                     linewidth=2, linestyle=style)
+            miss = next((r for r in rs if r["status"] != "ok"), None)
+            if miss:
+                for a, y in ((ax, miss["R"]), (ax2, miss["R_over_T"])):
+                    a.scatter([miss["target_nm_bytes"]], [y], marker="X", s=60, color=COL[role],
+                              edgecolor=ps.SURFACE, linewidth=0.8, zorder=5)
+                ax2.annotate(f"WG {g} misses its deadline\nfrom NM {miss['target_nm_bytes']} B",
+                             (miss["target_nm_bytes"], miss["R_over_T"]), xytext=(-8, 10),
+                             textcoords="offset points", ha="right", fontsize=7, color=ps.TEXT)
     # where the target becomes the largest lower-priority WG of the WG just above it
     cross = crossover(spec)
     if cross is not None and spec.get("higher"):
@@ -194,17 +235,39 @@ def lines(rows: list[dict], spec: dict, path: str) -> str:
     span = ax.get_ylim()[1] - ax.get_ylim()[0]
     last = None
     for x, y, text, color in labels:
-        y2 = y if last is None or y - last > 0.04 * span else last + 0.04 * span
+        y2 = y if last is None or y - last > 0.055 * span else last + 0.055 * span
         ax.text(x * 1.01 + 1, y2, text, fontsize=7, color=ps.TEXT, va="center")
         last = y2
     ax.set_xlim(0, xs[-1] * 1.2)
     ax.set_ylim(0, None)
-    ax.set_xlabel(f"NetworkMessage size of WG {tg}, the WG under analysis (bytes; "
+    xa = ax
+    if budget:
+        b = size_budget(rows)
+        lim = min((x["last_ok_nm_bytes"] for x in b.values() if x["first_miss_v"] is not None),
+                  default=None)
+        ax2.axhline(1, color=ps.TEXT, linewidth=1)
+        ax2.text(0.32, 1, " R = T (deadline)", transform=ax2.get_yaxis_transform(), fontsize=7,
+                 color=ps.TEXT, va="bottom")
+        if lim is not None:
+            for a in (ax, ax2):
+                a.axvspan(lim, xs[-1], color="#d6402b", alpha=0.06, linewidth=0)
+            ax2.text(lim, 0.03, f"size budget: NM ≤ {lim} B ", transform=ax2.get_xaxis_transform(),
+                     fontsize=7, color="#a33a2a", va="bottom", ha="right")
+        ax2.axvline(xs[-1], color=ps.TEXT_2, linewidth=0.8)
+        if cross is not None and spec.get("higher"):
+            ax2.axvline(_nm_of(spec, cross), color=ps.TEXT_2, linewidth=0.8, linestyle=(0, (2, 3)))
+        ax2.set_ylim(0, max(1.1, max(r["R_over_T"] or 0 for r in rows) * 1.08))
+        ax2.set_ylabel("R / T")
+        xa = ax2
+    xa.set_xlabel(f"NetworkMessage size of WG {tg}, the WG under analysis (bytes; "
                   f"{spec['target']['type']} variables added, {spec['target'].get('dsms', 1)} "
                   f"DSM{'s' if int(spec['target'].get('dsms', 1)) > 1 else ''})")
     ax.set_ylabel("µs")
-    ax.set_title(f"P1: one WG grows to the MTU; response times on its publisher", loc="left")
-    ax.legend(loc="upper center", bbox_to_anchor=(0.5, -0.16), ncols=2)
+    scale = float(spec.get("wcet_scale", 1))
+    ax.set_title("P1: one WG grows to the MTU; response times on its publisher"
+                 + (f" (WCETs × {scale:g})" if scale != 1 else ""), loc="left")
+    xa.legend(*ax.get_legend_handles_labels(), loc="upper center",
+              bbox_to_anchor=(0.5, -0.22 if budget else -0.16), ncols=2)
     return ps.save(fig, path)
 
 
@@ -260,6 +323,10 @@ def main(argv: list[str] | None = None) -> int:
     write_csv(rows, paths[0])
     paths.append(lines(rows, spec, os.path.join(out, "p1_lines.png")))
     paths.append(bars(rows, spec, os.path.join(out, "p1_bars.png")))
+    if spec.get("budget"):
+        b = size_budget(rows)
+        paths.append(os.path.join(out, "p1_budget.csv"))
+        write_csv(list(b.values()), paths[-1])
 
     tg = int(spec["target"]["writer_group_id"])
     vs = sorted({r["v"] for r in rows})
@@ -272,6 +339,13 @@ def main(argv: list[str] | None = None) -> int:
         ch = "" if a["R"] is None or b["R"] is None else f"{b['R'] - a['R']:+.3f}"
         print(f"  {g:>4} {a['role']:>8} {a['T']:>7g} {a['R'] or '-':>10} {b['R'] or '-':>10} {ch:>9}  {b['status']}")
     print(f"  W of WG {tg}: {at[(vs[0], tg)]['W']:.3f} -> {at[(vs[-1], tg)]['W']:.3f} us")
+    if spec.get("budget"):
+        miss = [x for x in size_budget(rows).values() if x["first_miss_v"] is not None]
+        for x in miss:
+            print(f"  WG {x['wg']} ({x['role']}, T {x['T']:g}) is not schedulable from NM "
+                  f"{x['first_miss_nm_bytes']} B ({x['first_miss_status']})")
+        print("  size budget: " + (f"NM <= {min(x['last_ok_nm_bytes'] for x in miss)} B keeps every WG "
+                                   f"schedulable" if miss else "every size up to the MTU is schedulable"))
     for p in paths:
         print("wrote", p)
     return 0

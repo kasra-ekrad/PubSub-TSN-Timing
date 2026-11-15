@@ -29,10 +29,10 @@ topology:
   #                              # get the same topology while --seed changes the rest
 
 wgs_per_publisher: [1, 4]
-periods: [5000, 10000 , 20000, 30000]   # whole us (ST and AVB inputs take integers)
+periods: [1000, 2000,5000, 10000 , 20000, 30000]   # whole us (ST and AVB inputs take integers)
 period_weights: null       # optional, same length as periods; null = equal
 
-variables_per_wg: [2, 12]
+variables_per_wg: [2, 20]
 dsms_per_wg: [1, 4]        # capped at the number of variables
 types:                     # how often each data type is drawn (RawData sizes, uadp.py)
   Float: 0.35
@@ -42,7 +42,7 @@ types:                     # how often each data type is drawn (RawData sizes, u
   Boolean: 0.1
 
 traffic:                   # PLACEHOLDERS
-  st_share: 0.2            # share of WGs whose NM is ST (rounded to a whole number)
+  st_share: 0            # share of WGs whose NM is ST (rounded to a whole number)
   st_short_period_bias: 1.0  # which WGs become ST: each is picked with weight T^-bias.
                            # 0 = any period equally likely; 1 = a 500 us WG is 20x as likely
                            # as a 10000 us one; 2 = 400x. Long periods stay possible.
