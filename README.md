@@ -146,7 +146,7 @@ Writes `p1_results.csv` (per size and WG: W, B, I = R − B − W, R, R/T, statu
 and `p1_bars.png` (R of every WG at the smallest and largest size). No network, no exes.
 
 Size budget: `python p1_publisher_size.py experiments/p1_budget.yaml` runs the same publisher
-with every WCET × 5 (`wcet_scale`, a slower device) and `budget: true`. The line chart gets
+with `budget: true` (`wcet_scale` multiplies every WCET, 1 = as p1.yaml). The line chart gets
 an R/T panel, the first deadline miss of each WG is marked, and `p1_budget.csv` gives per WG
 the first NM size with R > T and the size budget: the largest NM with every WG schedulable.
 
@@ -197,10 +197,11 @@ what limits each, dR/dk), `cpu_study_heatmap.png` (median k_sub/k_pub per cell),
 Any scenario parameter can be a grid axis (dotted path; a mapping sets several keys).
 
 **Comparison with Denzler et al.** One publisher, one subscriber, one WG, point-to-point at
-100 Mbit/s, no contention (`experiments/denzler.yaml`, with the papers' values): (1) one Int32,
-no VLAN tag, WCETs and maxima of "Static Timing Analysis of OPC UA PubSub" (2021); (2) 1–4
-UInt32, VLAN tag, WCETs and medians of "Timing Analysis of TSN-Enabled OPC UA PubSub" (2022).
-Each case is one `run_all.py` run with W = PublishCallback and W' = SubscribeCallback bound.
+100 Mbit/s, no contention (`experiments/denzler.yaml`): (1) one Int32, no VLAN tag, bounds and maxima of "Static Timing
+Analysis of OPC UA PubSub" (2021); (2) 1–4 UInt32, VLAN tag, bounds and medians of "Timing
+Analysis of TSN-Enabled OPC UA PubSub" (2022). Only the configuration comes from the papers;
+W and W' come from the WCET model of `scenario.yaml` (`wcet_model`) at the midpoints, with the
+lower and upper ends of the ranges as whisker. Each case is one `run_all.py` run.
 
 ```
 python denzler.py experiments/denzler.yaml               # -> results/denzler/
@@ -219,7 +220,7 @@ python generate_system.py scenario.yaml --out generated.yaml [--seed N]
 python run_all.py generated.yaml --system gen --exp-id 1
 ```
 
-The scenario gives the topology (links and which end nodes are publishers, subscribers and best-effort sources: the same for every seed; or a generated line of switches, 1 = star, with its own `topology.seed`) and counts and ranges: WGs per publisher, periods, variables and DSMs per WG, data types, ST and AVB A shares (placeholders), best-effort flows and network settings. WCET = base + slope × size, with base and slope drawn per task from ranges (rough estimates, scaled from Kirchberger, TU Wien 2022); ψ (collection) and ψ' (dispatch) have one value per data type for the whole system, or are given per type with `per_type`. Priorities are global: every ST WG above every AVB WG, then shorter period first; rho = rank. A draw is kept only if it passes the loader's checks (MTU, link load) and every publisher and subscriber has ΣW/T below `limits.max_cpu_utilization`; otherwise the next draw is tried. Same scenario + seed = same system.
+The scenario gives the topology (links and which end nodes are publishers, subscribers and best-effort sources: the same for every seed; or a generated line of switches, 1 = star, with its own `topology.seed`) and counts and ranges: WGs per publisher, periods, variables and DSMs per WG, data types, ST and AVB A shares (placeholders), best-effort flows and network settings. WCET = base + slope × size, with base and slope drawn per task from ranges (calibrated to the 80 MHz T-CREST/Patmos measurements of Denzler et al.: publisher ×16 and subscriber ×50 of the earlier 1–2 GHz estimates; one Int32 at the midpoints gives W = 133.7 µs, W' = 425.3 µs; periods 5–100 ms); ψ (collection) and ψ' (dispatch) have one value per data type for the whole system, or are given per type with `per_type`. Priorities are global: every ST WG above every AVB WG, then shorter period first; rho = rank. A draw is kept only if it passes the loader's checks (MTU, link load) and every publisher and subscriber has ΣW/T below `limits.max_cpu_utilization`; otherwise the next draw is tried. Same scenario + seed = same system.
 
 ## Conventions
 

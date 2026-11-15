@@ -1,0 +1,44 @@
+# P2: priority position of one WG -> publisher, network and subscriber response times.
+#   python p2_priority.py experiments/p2.yaml            (runs run_all.py with the exes, once per position)
+#
+# One publisher (node 1) with five WGs, one subscriber (node 2) that receives all five.
+# The WG under analysis ("target") is moved through every priority position, from the
+# highest (1) to the lowest; the other WGs keep their order and every size stays fixed.
+# No ST: every WG is AVB. Priorities are global, so the subscriber inherits the same order.
+# Times in us; sizes in bytes.
+
+name: p2
+publisher_id_type: UInt16
+
+# Publisher WCET model (as P1): psi per variable, phi per DSM, C3 per WG, C4 per NM byte.
+wcet:
+  collect:   {base: 3.2,  per_byte: 0.032}
+  dsw:       {base: 8.8, per_field: 1.6}
+  wg:        {base: 12, per_dsm: 3.2}
+  transport: {base: 104,  per_byte: 0.032}
+
+# Subscriber WCET model (midpoints of scenario.yaml):
+#   C1  reception = base + per_byte * NM bytes      C2  filter = base
+#   phi' decode per DSM = base + per_field * fields psi' dispatch per variable = base + per_byte * size(type)
+sub_wcet:
+  reception: {base: 325,  per_byte: 0.1}
+  filter:    {base: 10}
+  decode:    {base: 62.5, per_field: 15}
+  dispatch:  {base: 10,  per_byte: 0.1}
+
+target:
+  {writer_group_id: 3, T: 20000, type: Float, v: 100, dsms: 1}
+
+# The other WGs, in their priority order (first = highest); the target is inserted at
+# every position of this list.
+others:
+  - {writer_group_id: 1, T: 5000,  type: Double, v: 8,  dsms: 1}
+  - {writer_group_id: 2, T: 10000, type: Float,  v: 16, dsms: 2}
+  - {writer_group_id: 4, T: 20000, type: Float,  v: 32, dsms: 2}
+  - {writer_group_id: 5, T: 50000, type: Double, v: 48, dsms: 4}
+
+network:
+  links: [[1, -1], [-1, -2], [2, -2]]   # publisher 1 - switch -1 - switch -2 - subscriber 2
+  bandwidth: 12.5                       # bytes/us (100 Mbit/s), as the network tools
+  epsilon: 0
+  max_link_load: 90

@@ -20,8 +20,10 @@ def test_denzler(tmp_path):
     assert a["frame_bytes"] == 73                         # one Int32, no VLAN tag, payload header
     assert a["bound_e2e"] == 232.9 + 15.4 + 5544.29 and a["measured_e2e"] == 642.32
     for r in rows.values():                               # no contention: R^p = W, R^s - J' = W'
-        assert r["ours_pub"] == r["bound_pub"] and abs(r["ours_sub"] - r["bound_sub"]) < 1e-6
+        assert r["ours_pub"] == r["ours_W"] and abs(r["ours_sub"] - r["ours_Ws"]) < 1e-6
         assert abs(r["ours_e2e"] - (r["ours_pub"] + r["ours_net"] + r["ours_sub"])) < 1e-6
+        assert r["ours_e2e_min"] < r["ours_e2e"] < r["ours_e2e_max"]
+        assert r["ours_W"] != r["bound_pub"]              # our WCET model, not the paper's
     assert [rows[f"sizes2022_v{v}"]["frame_bytes"] for v in range(1, 5)] == [77, 81, 85, 89]          # 77 B for 32 bit, as in the paper
     for f in ("denzler_static2021.png", "denzler_sizes.png"):
         assert (out / f).is_file()

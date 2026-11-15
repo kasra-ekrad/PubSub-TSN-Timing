@@ -102,7 +102,8 @@ def critical(spec, folder, side, hi=Fraction(64), digits=4) -> dict:
         else:
             hi = mid
     _, why = schedulable(spec, folder, side, hi)
-    return {"side": side, "critical_k": round(float(lo), digits), "limited_by": why}
+    k = Fraction(math.floor(lo * 10 ** digits), 10 ** digits)   # round down: stays schedulable
+    return {"side": side, "critical_k": float(k), "limited_by": why}
 
 
 def k_grid(spec: dict) -> list[Fraction]:

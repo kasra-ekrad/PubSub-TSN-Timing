@@ -17,20 +17,20 @@ k_max: 16
 points: 49
 
 wcet:                     # publisher (as P1/P2)
-  collect:   {base: 0.2,  per_byte: 0.002}
-  dsw:       {base: 0.55, per_field: 0.1}
-  wg:        {base: 0.75, per_dsm: 0.2}
-  transport: {base: 6.5,  per_byte: 0.002}
+  collect:   {base: 3.2,  per_byte: 0.032}
+  dsw:       {base: 8.8, per_field: 1.6}
+  wg:        {base: 12, per_dsm: 3.2}
+  transport: {base: 104,  per_byte: 0.032}
 
 sub_wcet:                 # subscriber (as P2)
-  reception: {base: 6.5,  per_byte: 0.002}
-  filter:    {base: 0.2}
-  decode:    {base: 1.25, per_field: 0.3}
-  dispatch:  {base: 0.2,  per_byte: 0.002}
+  reception: {base: 325,  per_byte: 0.1}
+  filter:    {base: 10}
+  decode:    {base: 62.5, per_field: 15}
+  dispatch:  {base: 10,  per_byte: 0.1}
 
 # WGs in priority order (first = highest)
 wgs:
-  - {writer_group_id: 1, T: 1000,  type: Double, v: 8,   dsms: 1}
+  - {writer_group_id: 1, T: 5000,  type: Double, v: 8,   dsms: 1}
   - {writer_group_id: 2, T: 10000, type: Float,  v: 16,  dsms: 2}
   - {writer_group_id: 3, T: 20000, type: Float,  v: 100, dsms: 1}
   - {writer_group_id: 4, T: 20000, type: Float,  v: 32,  dsms: 2}

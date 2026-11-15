@@ -104,7 +104,7 @@ def test_st_share_extremes(sc, share, expected):
 
 def test_infeasible_scenario_reports_why(sc):
     s = copy.deepcopy(sc)
-    s["wcet"]["publisher"]["transport"]["base"] = [20000, 30000]   # > every period
+    s["wcet"]["publisher"]["transport"]["base"] = [200000, 300000]   # > every period
     s["limits"]["attempts"] = 20
     with pytest.raises(gen.ScenarioError, match="publisher utilization"):
         gen.generate(s)

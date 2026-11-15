@@ -6,11 +6,14 @@ split into publisher, network and subscriber. One WG, no contention, point-to-po
 
 (1) static2021: one Int32 value, no VLAN tag (Static Timing Analysis of OPC UA PubSub, 2021)
 (2) sizes2022:  1 to 4 uint32 values, VLAN tag (Timing Analysis of TSN-Enabled OPC UA PubSub, 2022)
-Each case is one run_all.py run (both exes) of a system with the paper's configuration: one
-WG whose chain WCET W is the paper's PublishCallback bound, one receiving transaction whose
-W' is the SubscribeCallback bound, AVB (no gates), point-to-point link.
+Each case is one run_all.py run (both exes) of a system with the paper's configuration (link,
+data type, number of values, period, VLAN tag, UADP payload header; one WG, AVB, no gates),
+and WCETs from YOUR model: the `wcet:` section of your scenario (wcet_model in the spec),
+read at the midpoints of its ranges. The minimum and maximum of the ranges give a range
+for our bound (the network results are reused: they do not depend on the WCETs).
 
-Our bound, split as in the analysis: R = R^p + R^max + (R^s - J'), here W + R^N + W'.
+Our bound, split as in the analysis: R = R^p + R^max + (R^s - J'), here W + R^N + W'
+(no contention), with W and W' from your WCET model.
 Their bound: PublishCallback + network + SubscribeCallback, where the network part has no
 bound in the papers ("HW-dependent") and is filled with their measured value.
 
@@ -30,42 +33,75 @@ import sys
 
 import yaml
 
+from fractions import Fraction
+
 import generate_system as gen
 import plot_style as ps
 import run_all
+import uadp
+from network_results import apply_network_results
 from plot_style import plt
+from subscriber_rta import analyse_all
+from system import _parse_system
 
 PARTS = [("pub", "Publisher"), ("net", "Network"), ("sub", "Subscriber")]
 COLOR = {"pub": ps.SLOT[0], "net": ps.SLOT[1], "sub": ps.SLOT[2]}
-SOURCES = [("bound", "Upper bound [Denzler]\n(WCET analysis)", "///"), ("ours", "Our bound", None),
+SOURCES = [("bound", "Upper bound [Denzler]\n(WCET analysis)", "///"), ("ours", "Our bound\n(our WCET model)", None),
            ("measured", "Measured [Denzler]", "...")]
 
 
 # --------------------------------------------------------------------- model
 
-def build(sp: dict, study: dict, v: int, W: float, Ws: float) -> dict:
+def wcet_model(sp: dict) -> dict:
+    """The WCET model of your scenario (wcet: publisher / subscriber), path relative to the spec."""
+    with open(sp["_wcet_model_path"], encoding="utf-8") as f:
+        return yaml.safe_load(f)["wcet"]
+
+
+def _v(x, pick: str) -> Fraction:
+    """A model value: a number, or a [min, max] range read at min, mid or max."""
+    if isinstance(x, list):
+        lo, hi = Fraction(str(x[0])), Fraction(str(x[1]))
+        return {"min": lo, "mid": (lo + hi) / 2, "max": hi}[pick]
+    return Fraction(str(x))
+
+
+def _per_type(spec: dict, typ: str, pick: str) -> Fraction:
+    if "per_type" in spec:
+        return Fraction(str(spec["per_type"][typ]))
+    return _v(spec["base"], pick) + _v(spec["per_byte"], pick) * uadp.field_size(typ)
+
+
+def build(sp: dict, study: dict, v: int, model: dict, pick: str = "mid") -> dict:
+    """The system of one case: Denzler's configuration, WCETs from your model (read at `pick`)."""
+    typ, pid, ph = study["type"], "UInt16", bool(sp.get("payload_header", True))
+    nm = uadp.nm_size([typ] * v, 1, pid, ph)
+    P, S = model["publisher"], model["subscriber"]
+    s = lambda x: str(x)
+    wg = {"n": 1, "writer_group_id": 1, "T": study["T"], "rho": 1, "types": [typ] * v,
+          "psi": [s(_per_type(P["collect"], typ, pick))] * v,
+          "phi": [s(_v(P["dsw"]["base"], pick) + _v(P["dsw"]["per_field"], pick) * v)],
+          "C3": s(_v(P["wg"]["base"], pick) + _v(P["wg"]["per_dsm"], pick)),
+          "C4": s(_v(P["transport"]["base"], pick) + _v(P["transport"]["per_byte"], pick) * nm)}
+    tx = {"m": 1, "writer_group_id": 1,
+          "C1": s(_v(S["reception"]["base"], pick) + _v(S["reception"]["per_byte"], pick) * nm),
+          "C2": s(_v(S["filter"]["base"], pick)),
+          "phi": [s(_v(S["decode"]["base"], pick) + _v(S["decode"]["per_field"], pick) * v)],
+          "psi": [s(_per_type(S["dispatch"], typ, pick))] * v}
     net = dict(sp["network"])
-    net.update(full_duplex=True, publisher_id_type="UInt16", vlan_tag=bool(study["vlan_tag"]), preamble_ifg=True,
-               payload_header=bool(sp.get("payload_header", True)),
-               messages=[{"writer_group_id": 1, "hard_real_time": False}])
-    return {"name": sp["name"],
-            "publishers": [{"p": 1, "node": 1, "writer_groups": [
-                {"n": 1, "writer_group_id": 1, "T": study["T"], "rho": 1, "types": [study["type"]] * v,
-                 "psi": [0] * v, "phi": [0], "C3": 0, "C4": W}]}],
-            "subscribers": [{"k": 1, "node": 2, "transactions": [
-                {"m": 1, "writer_group_id": 1, "C1": Ws, "C2": 0, "phi": [0], "psi": [0] * v}]}],
-            "network": net}
+    net.update(full_duplex=True, publisher_id_type=pid, vlan_tag=bool(study["vlan_tag"]), preamble_ifg=True,
+               payload_header=ph, messages=[{"writer_group_id": 1, "hard_real_time": False}])
+    return {"name": sp["name"], "publishers": [{"p": 1, "node": 1, "writer_groups": [wg]}],
+            "subscribers": [{"k": 1, "node": 2, "transactions": [tx]}], "network": net}
 
 
 def cases(sp: dict) -> list[dict]:
     a, b = sp["static2021"], sp["sizes2022"]
     out = [{"case": "static2021", "study": "static2021", "values": int(a["values"]),
-            "W": a["bound"]["publish"], "Ws": a["bound"]["subscribe"],
             "bound": dict(a["bound"]), "measured": dict(a["measured"])}]
     for v in b["values"]:
         m = b["measured"]
         out.append({"case": f"sizes2022_v{v}", "study": "sizes2022", "values": int(v),
-                    "W": b["bound_publish"][v], "Ws": b["bound_subscribe"],
                     "bound": {"publish": b["bound_publish"][v], "network": m["network"][v],
                               "subscribe": b["bound_subscribe"]},
                     "measured": {"publish": m["publish"][v], "network": m["network"][v],
@@ -79,8 +115,8 @@ def cases(sp: dict) -> list[dict]:
 
 def run_case(sp: dict, c: dict, out: str, args) -> str:
     path = os.path.join(out, "systems", f"{c['case']}.yaml")
-    gen.write_yaml(build(sp, sp[c["study"]], c["values"], c["W"], c["Ws"]), path,
-                   [f"Denzler et al. configuration: {c['case']}"])
+    gen.write_yaml(build(sp, sp[c["study"]], c["values"], wcet_model(sp)), path,
+                   [f"Denzler et al. configuration ({c['case']}); WCETs: your model at the midpoints"])
     argv = [path, "--system", sp["name"], "--exp-id", str(c["exp_id"]), "--work-dir", out,
             "--tools-dir", args.tools_dir, "--num-queues", str(args.num_queues), "--folder-arg", args.folder_arg]
     if args.runner is not None:
@@ -94,24 +130,40 @@ def run_case(sp: dict, c: dict, out: str, args) -> str:
     return "ok" if os.path.isfile(os.path.join(out, f"Experiment{c['exp_id']}", "results.json")) else "failed"
 
 
+def _analyse(sp: dict, c: dict, folder: str, pick: str):
+    """Your analysis of the case with the WCET model read at `pick`, network results of the run."""
+    d = build(sp, sp[c["study"]], c["values"], wcet_model(sp), pick)
+    system = _parse_system(d, sp["name"])
+    system = apply_network_results(system, folder, None, os.path.join(folder, "final_new_results.txt"))
+    return analyse_all(system)
+
+
 def collect(sp: dict, out: str) -> list[dict]:
     rows = []
     for c in cases(sp):
-        path = os.path.join(out, f"Experiment{c['exp_id']}", "results.json")
-        if not os.path.isfile(path):
+        folder = os.path.join(out, f"Experiment{c['exp_id']}")
+        if not os.path.isfile(os.path.join(folder, "results.json")):
             continue
-        with open(path, encoding="utf-8") as f:
+        with open(os.path.join(folder, "results.json"), encoding="utf-8") as f:
             res = json.load(f)
-        e, n = res["e2e"][0], res["network"]["1"]
+        n = res["network"]["1"]
         b, m = c["bound"], c["measured"]
-        rows.append({"case": c["case"], "study": c["study"], "values": c["values"],
-                     "bits": 32 * c["values"], "frame_bytes": n["frame_bytes"], "wire_bytes": n["length"],
-                     "ours_pub": e["R_p"], "ours_net": e["R_max"], "ours_sub": e["R_s"] - e["J"],
-                     "R_min": n.get("R_min"), "J": e["J"], "R_s": e["R_s"], "ours_e2e": e["R"],
-                     "bound_pub": b["publish"], "bound_net": b["network"], "bound_sub": b["subscribe"],
-                     "bound_e2e": b["publish"] + b["network"] + b["subscribe"],
-                     "measured_pub": m["publish"], "measured_net": m["network"], "measured_sub": m["subscribe"],
-                     "measured_sum": m["publish"] + m["network"] + m["subscribe"], "measured_e2e": m["e2e"]})
+        row = {"case": c["case"], "study": c["study"], "values": c["values"],
+               "bits": 32 * c["values"], "frame_bytes": n["frame_bytes"], "wire_bytes": n["length"]}
+        for pick in ("mid", "min", "max"):
+            pub, sub, e2e = _analyse(sp, c, folder, pick)
+            e, pw, sw = e2e[0], pub[1][0], sub[1][0]
+            tag = "" if pick == "mid" else f"_{pick}"
+            row.update({f"ours_W{tag}": float(pw.W), f"ours_Ws{tag}": float(sw.W), f"ours_pub{tag}": float(e.R_p),
+                        f"ours_net{tag}": float(e.R_max), f"ours_sub{tag}": float(e.R_s - e.J),
+                        f"ours_e2e{tag}": float(e.R)})
+            if pick == "mid":
+                row.update(R_min=float(n.get("R_min")), J=float(e.J), R_s=float(e.R_s))
+        row.update({"bound_pub": b["publish"], "bound_net": b["network"], "bound_sub": b["subscribe"],
+                    "bound_e2e": b["publish"] + b["network"] + b["subscribe"],
+                    "measured_pub": m["publish"], "measured_net": m["network"], "measured_sub": m["subscribe"],
+                    "measured_sum": m["publish"] + m["network"] + m["subscribe"], "measured_e2e": m["e2e"]})
+        rows.append(row)
     return rows
 
 
@@ -141,6 +193,9 @@ def _stack(ax, x, r, src, hatch, width, label_parts=False):
         ax.bar(x, h, bottom=bottom, width=width, color=COLOR[key], edgecolor=ps.SURFACE, linewidth=0.8,
                hatch=hatch, label=name if label_parts else None)
         bottom += h
+    if src == "ours" and r.get("ours_e2e_min") is not None:     # range of your WCET model
+        ax.errorbar(x, bottom, yerr=[[bottom - r["ours_e2e_min"]], [r["ours_e2e_max"] - bottom]],
+                    color=ps.TEXT, capsize=3, linewidth=1, zorder=5)
     return bottom
 
 
@@ -153,7 +208,8 @@ def static2021(rows: list[dict], path: str) -> str:
         total = _stack(ax, i, r, src, hatch, 0.5, label_parts=(i == 1))
         top = max(top, total)
         parts = "\n".join(f"{n}: {r[f'{src}_{k}']:.2f}" for k, n in PARTS)
-        ax.text(i + 0.28, total, f"{total:,.2f} µs\n" + parts, fontsize=7, color=ps.TEXT, va="bottom")
+        rng = (f"\n(model range {r['ours_e2e_min']:,.2f}–{r['ours_e2e_max']:,.2f})" if src == "ours" else "")
+        ax.text(i + 0.28, total, f"{total:,.2f} µs{rng}\n" + parts, fontsize=7, color=ps.TEXT, va="bottom")
     m = r["measured_e2e"]
     ax.plot([1.72, 2.28], [m, m], color=ps.TEXT, linewidth=1.4)
     ax.annotate(f"measured end-to-end max: {m:.2f}\n(the parts do not peak together)", (1.8, m),
@@ -211,6 +267,8 @@ def main(argv: list[str] | None = None) -> int:
     args.tools_dir = os.path.abspath(args.tools_dir)
     with open(args.spec, encoding="utf-8") as f:
         sp = yaml.safe_load(f)
+    sp["_wcet_model_path"] = os.path.join(os.path.dirname(os.path.abspath(args.spec)),
+                                          sp.get("wcet_model", "../scenario.yaml"))
     out = os.path.abspath(args.out or os.path.join("results", sp["name"]))
     csv_path = os.path.join(out, "denzler_results.csv")
     if not args.plot_only:

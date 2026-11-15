@@ -10,10 +10,15 @@
 # (2) sizes2022: Denzler, Fruhwirth, Scheuchenstuhl, Schoeberl, Kastner, "Timing Analysis of
 #     TSN-Enabled OPC UA PubSub" (WFCS 2022): 1 to 4 uint32 values, VLAN-tagged. Upper
 #     bounds from Table I; measured = MEDIANS of Table II (point-to-point).
+# Only the configuration (link, type, number of values, period, VLAN tag, payload header) is
+# taken from the papers for our analysis.
 # The papers give no bound for the network part (EthSend + NetworkDelay + EthRec is
 # "HW-dependent"); in the bound bars it is filled with the measured value of the same paper.
 
 name: denzler
+wcet_model: ../scenario.yaml   # our bound uses YOUR WCET model (its `wcet:` section), read at the
+                               # midpoints of the ranges; min and max give the whisker. The
+                               # papers' WCETs below are used only for their bars.
 payload_header: true       # open62541 sends the UADP payload header (Count + DataSetWriterId):
                            # 3 more bytes than UADP-Periodic-Fixed; 32 bit with VLAN -> 77-byte
                            # frame, as reported in the 2022 paper
