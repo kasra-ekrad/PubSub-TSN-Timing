@@ -10,8 +10,8 @@ and R/T.
 
 Writes into --out (default results/<name>):
     p1_results.csv   one row per (v, WG)
-    p1_lines.png     R of every WG and W of the target against the target's NM size
-    p1_bars.png      R of every WG at the smallest and the largest size
+    p1_lines.pdf     R of every WG and W of the target against the target's NM size
+    p1_bars.pdf      R of every WG at the smallest and the largest size
     p1_budget.csv    (with `budget: true`) per WG the first size at which R > T, and the
                      size budget: the largest NM with every WG schedulable; the line chart
                      then gets an R/T panel and marks the first deadline miss of each WG
@@ -166,108 +166,91 @@ def write_csv(rows: list[dict], path: str) -> None:
 
 COL = {"W": ps.SLOT[3], "target": ps.SLOT[0], "higher": ps.SLOT[1], "lower": ps.SLOT[2]}
 STYLES = ["-", (0, (5, 2)), (0, (1, 1.5)), (0, (6, 2, 1, 2))]
+LW = 1.2
 
 
 def lines(rows: list[dict], spec: dict, path: str) -> str:
+    """R^p of every WG (and W of the target) against the target's NM size. Paper style, one
+    column; with `budget: true` a second panel shows R/T."""
     tg = int(spec["target"]["writer_group_id"])
-    wgs = sorted({r["wg"] for r in rows}, key=lambda g: next(r["role"] for r in rows if r["wg"] == g))
     by = {}
     for r in rows:
         by.setdefault(r["wg"], []).append(r)
     order = [g for role in ("higher", "target", "lower") for g in sorted(by) if by[g][0]["role"] == role]
     budget = spec.get("budget")
     if budget:
-        fig, (ax, ax2) = plt.subplots(2, 1, figsize=(7.4, 5.6), sharex=True,
-                                      gridspec_kw={"height_ratios": [1.9, 1.6], "hspace": 0.08})
+        fig, (ax, ax2) = plt.subplots(2, 1, figsize=(3.5, 3.9), sharex=True,
+                                      gridspec_kw={"height_ratios": [2, 1.2], "hspace": 0.1})
     else:
-        fig, ax = plt.subplots(figsize=(7.4, 4.4))
+        fig, ax = plt.subplots(figsize=(3.5, 2.7))
     count = {"higher": 0, "lower": 0}
     labels = []
     t_rows = by[tg]
     xs = [r["target_nm_bytes"] for r in t_rows]
-    ax.plot(xs, [r["W"] for r in t_rows], color=COL["W"], linewidth=2, linestyle=(0, (5, 2)),
-            label=f"W of WG {tg} (under analysis)")
-    labels.append((xs[-1], t_rows[-1]["W"], f"W, WG {tg}", COL["W"]))
+    ax.plot(xs, [r["W"] for r in t_rows], color=COL["W"], linewidth=LW, linestyle=(0, (5, 2)),
+            label=f"$W$ of WG {tg}")
+    labels.append((xs[-1], t_rows[-1]["W"], f"$W$ {tg}"))
     for g in order:
         rs = [r for r in by[g] if r["R"] is not None]
-        role = rs[0]["role"] if rs else by[g][0]["role"]
         if not rs:
             continue
+        role = rs[0]["role"]
         if role == "target":
-            style, name = "-", f"R of WG {g} (under analysis)"
+            style, name = "-", f"$R^p$ of WG {g} (under analysis)"
         else:
             style = STYLES[count[role] % len(STYLES)]
             count[role] += 1
-            name = f"R of WG {g} ({'higher' if role == 'higher' else 'lower'} priority, T {rs[0]['T']:g})"
-        ax.plot([r["target_nm_bytes"] for r in rs], [r["R"] for r in rs], color=COL[role], linewidth=2, linestyle=style,
-                label=name)
-        labels.append((rs[-1]["target_nm_bytes"], rs[-1]["R"], f"WG {g}", COL[role]))
+            name = f"$R^p$ of WG {g} ({role} priority)"
+        ax.plot([r["target_nm_bytes"] for r in rs], [r["R"] for r in rs], color=COL[role],
+                linewidth=LW, linestyle=style, label=name)
+        labels.append((rs[-1]["target_nm_bytes"], rs[-1]["R"], f"WG {g}"))
         if budget:
             ax2.plot([r["target_nm_bytes"] for r in rs], [r["R_over_T"] for r in rs], color=COL[role],
-                     linewidth=2, linestyle=style)
+                     linewidth=LW, linestyle=style)
             miss = next((r for r in rs if r["status"] != "ok"), None)
             if miss:
                 for a, y in ((ax, miss["R"]), (ax2, miss["R_over_T"])):
-                    a.scatter([miss["target_nm_bytes"]], [y], marker="X", s=60, color=COL[role],
-                              edgecolor=ps.SURFACE, linewidth=0.8, zorder=5)
-                ax2.annotate(f"WG {g} misses its deadline\nfrom NM {miss['target_nm_bytes']} B",
-                             (miss["target_nm_bytes"], miss["R_over_T"]), xytext=(-8, 10),
-                             textcoords="offset points", ha="right", fontsize=7, color=ps.TEXT)
-    # where the target becomes the largest lower-priority WG of the WG just above it
+                    a.scatter([miss["target_nm_bytes"]], [y], marker="x", s=25, color=COL[role],
+                              linewidth=1, zorder=5)
+    # where W of the target exceeds every lower-priority W: the higher WGs start to grow
     cross = crossover(spec)
+    axes = (ax, ax2) if budget else (ax,)
     if cross is not None and spec.get("higher"):
         xb = _nm_of(spec, cross)
-        ax.axvline(xb, color=ps.TEXT_2, linewidth=0.8, linestyle=(0, (2, 3)))
-        ax.text(xb, 0.98, f"  W of WG {tg} > every lower WG (NM {xb} B, {cross} variables):\n  "
-                             f"higher WGs start to see it as blocking",
-                transform=ax.get_xaxis_transform(), fontsize=7, color=ps.TEXT_2, va="top")
-    # direct labels at the line ends: lines ending at the same value share one label
+        for a in axes:
+            a.axvline(xb, color="#555555", linewidth=0.6, linestyle=(0, (2, 2)))
+        ax.text(xb, 0.98, f" {xb} B", transform=ax.get_xaxis_transform(), fontsize=6.5, va="top")
+    for a in axes:
+        a.axvline(xs[-1], color="#555555", linewidth=0.6)
+    ax.text(xs[-1], 0.98, "MTU ", transform=ax.get_xaxis_transform(), fontsize=6.5, ha="right", va="top")
+    # labels at the line ends; lines ending at the same value share one label
     merged = []
-    for x, y, text, color in sorted(labels, key=lambda x: x[1]):
+    for x, y, text in sorted(labels, key=lambda x: x[1]):
         if merged and abs(merged[-1][1] - y) < 1e-9:
-            merged[-1] = (x, y, merged[-1][2] + " = " + text.replace("WG ", "") + " (same R)", color)
+            merged[-1] = (x, y, merged[-1][2] + ", " + text.replace("WG ", ""))
         else:
-            merged.append((x, y, text, color))
-    labels = merged
-    ax.axvline(xs[-1], color=ps.TEXT_2, linewidth=0.8)
-    ax.text(xs[-1], 0.02, "MTU ", transform=ax.get_xaxis_transform(), fontsize=7, color=ps.TEXT_2,
-            ha="right", va="bottom")
-    span = ax.get_ylim()[1] - ax.get_ylim()[0]
+            merged.append((x, y, text))
+    ax.set_xlim(0, xs[-1] * 1.17)
+    ax.set_ylim(0, max(y for _, y, _ in merged) * 1.08)
+    span = ax.get_ylim()[1]
     last = None
-    for x, y, text, color in labels:
-        y2 = y if last is None or y - last > 0.055 * span else last + 0.055 * span
-        ax.text(x * 1.01 + 1, y2, text, fontsize=7, color=ps.TEXT, va="center")
+    for x, y, text in merged:
+        y2 = y if last is None or y - last > 0.07 * span else last + 0.07 * span
+        ax.text(x + xs[-1] * 0.015, y2, text, fontsize=6.5, va="center")
         last = y2
-    ax.set_xlim(0, xs[-1] * 1.2)
-    ax.set_ylim(0, None)
+    ax.set_ylabel("Time (µs)")
     xa = ax
     if budget:
-        b = size_budget(rows)
-        lim = min((x["last_ok_nm_bytes"] for x in b.values() if x["first_miss_v"] is not None),
-                  default=None)
-        ax2.axhline(1, color=ps.TEXT, linewidth=1)
-        ax2.text(0.32, 1, " R = T (deadline)", transform=ax2.get_yaxis_transform(), fontsize=7,
-                 color=ps.TEXT, va="bottom")
-        if lim is not None:
-            for a in (ax, ax2):
-                a.axvspan(lim, xs[-1], color="#d6402b", alpha=0.06, linewidth=0)
-            ax2.text(lim, 0.03, f"size budget: NM ≤ {lim} B ", transform=ax2.get_xaxis_transform(),
-                     fontsize=7, color="#a33a2a", va="bottom", ha="right")
-        ax2.axvline(xs[-1], color=ps.TEXT_2, linewidth=0.8)
-        if cross is not None and spec.get("higher"):
-            ax2.axvline(_nm_of(spec, cross), color=ps.TEXT_2, linewidth=0.8, linestyle=(0, (2, 3)))
-        ax2.set_ylim(0, max(1.1, max(r["R_over_T"] or 0 for r in rows) * 1.08))
-        ax2.set_ylabel("R / T")
+        ax2.axhline(1, color="#000000", linewidth=0.8)
+        ax2.text(0.02, 1, "$R^p = T$", transform=ax2.get_yaxis_transform(), fontsize=6.5, va="bottom")
+        ax2.set_ylim(0, max(1.15, max(r["R_over_T"] or 0 for r in rows) * 1.08))
+        ax2.set_ylabel("$R^p / T$")
         xa = ax2
-    xa.set_xlabel(f"NetworkMessage size of WG {tg}, the WG under analysis (bytes; "
-                  f"{spec['target']['type']} variables added, {spec['target'].get('dsms', 1)} "
-                  f"DSM{'s' if int(spec['target'].get('dsms', 1)) > 1 else ''})")
-    ax.set_ylabel("µs")
-    scale = float(spec.get("wcet_scale", 1))
-    ax.set_title("P1: one WG grows to the MTU; response times on its publisher"
-                 + (f" (WCETs × {scale:g})" if scale != 1 else ""), loc="left")
-    xa.legend(*ax.get_legend_handles_labels(), loc="upper center",
-              bbox_to_anchor=(0.5, -0.22 if budget else -0.16), ncols=2)
+    xa.set_xlabel(f"NetworkMessage size of WG {tg} (bytes)")
+    xa.grid(axis="x", visible=False)
+    h, l = ax.get_legend_handles_labels()
+    xa.legend(h, l, loc="upper center", bbox_to_anchor=(0.5, -0.3 if budget else -0.2), ncols=2,
+              handlelength=2.2, columnspacing=1.0, labelspacing=0.3)
     return ps.save(fig, path)
 
 
@@ -280,28 +263,32 @@ def _nm_of(spec, v):
 
 
 def bars(rows: list[dict], spec: dict, path: str) -> str:
+    """R^p of every WG at the smallest and the largest size of the target. Paper style."""
     vs = sorted({r["v"] for r in rows})
     lo, hi = vs[0], vs[-1]
     at = {(r["v"], r["wg"]): r for r in rows}
+    tg = spec["target"]["writer_group_id"]
     order = [g for role in ("higher", "target", "lower")
              for g in sorted({r["wg"] for r in rows if r["role"] == role})]
-    fig, ax = plt.subplots(figsize=(6.6, 3.4))
+    fig, ax = plt.subplots(figsize=(3.5, 2.3))
     w = 0.38
-    for i, (v, color) in enumerate(((lo, ps.SLOT[0]), (hi, ps.SLOT[1]))):
-        xs = [k + (i - 0.5) * w for k in range(len(order))]
+    top = 0
+    for i, (v, color, hatch) in enumerate(((lo, ps.SLOT[0], None), (hi, ps.SLOT[1], "////"))):
+        xs = [k + (i - 0.5) * (w + 0.02) for k in range(len(order))]
         ys = [at[(v, g)]["R"] or 0 for g in order]
-        ax.bar(xs, ys, width=w, color=color, edgecolor=ps.SURFACE, linewidth=1,
-               label=f"WG {spec['target']['writer_group_id']} with {v} variable{'s' if v > 1 else ''} "
-                     f"(NM {at[(v, order[0])]['target_nm_bytes']} B)")
+        ax.bar(xs, ys, width=w, color=color, linewidth=0, hatch=hatch,
+               label=f"WG {tg}: {v} variable{'s' if v > 1 else ''} "
+                     f"({at[(v, order[0])]['target_nm_bytes']} B)")
         for x, y in zip(xs, ys):
-            ax.text(x, y, f"{y:.1f}", ha="center", va="bottom", fontsize=7, color=ps.TEXT_2)
+            ax.text(x, y, f" {y:.1f}", ha="center", va="bottom", fontsize=6, rotation=90)
+        top = max(top, max(ys))
     role = {g: at[(lo, g)]["role"] for g in order}
-    ax.set_xticks(range(len(order)), [f"WG {g}\n{'under analysis' if role[g] == 'target' else role[g]}"
+    ax.set_xticks(range(len(order)), [f"WG {g}\n({'analysed' if role[g] == 'target' else role[g]})"
                                       for g in order])
-    ax.set_ylabel("response time R (µs)")
+    ax.set_ylim(0, top * 1.25)
+    ax.set_ylabel("$R^p$ (µs)")
     ax.grid(axis="x", visible=False)
-    ax.set_title("P1: response times at the smallest and the largest size", loc="left")
-    ax.legend(loc="upper left")
+    ax.legend(loc="upper center", bbox_to_anchor=(0.5, -0.25), ncols=2, columnspacing=1.0)
     return ps.save(fig, path)
 
 
@@ -318,11 +305,11 @@ def main(argv: list[str] | None = None) -> int:
     if args.step:
         spec["target"]["v_step"] = args.step
     rows, _ = run(spec)
-    ps.setup()
+    ps.paper()
     paths = [os.path.join(out, "p1_results.csv")]
     write_csv(rows, paths[0])
-    paths.append(lines(rows, spec, os.path.join(out, "p1_lines.png")))
-    paths.append(bars(rows, spec, os.path.join(out, "p1_bars.png")))
+    paths.append(lines(rows, spec, os.path.join(out, "p1_lines.pdf")))
+    paths.append(bars(rows, spec, os.path.join(out, "p1_bars.pdf")))
     if spec.get("budget"):
         b = size_budget(rows)
         paths.append(os.path.join(out, "p1_budget.csv"))

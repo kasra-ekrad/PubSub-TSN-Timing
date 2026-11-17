@@ -24,7 +24,6 @@ grid:
     - [4, 4]
     - [6, 6]
     - [8, 8]
-    - [10, 10]
   topology:                            # publishers : subscribers -> fan-in (4:1) ... fan-out (1:4)
     - {publishers: 6, subscribers: 1}
     - {publishers: 4, subscribers: 1}
@@ -32,7 +31,6 @@ grid:
     - {publishers: 1, subscribers: 1}
     - {publishers: 1, subscribers: 2}
     - {publishers: 1, subscribers: 4}
-    - {publishers: 1, subscribers: 6}
 
 seeds: [1, 50]                         # seeds 1..10 for every grid cell (or a list: [3, 7])
 

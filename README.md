@@ -142,8 +142,8 @@ python p1_publisher_size.py experiments/p1.yaml        # -> results/p1/
 ```
 
 Writes `p1_results.csv` (per size and WG: W, B, I = R − B − W, R, R/T, status),
-`p1_lines.png` (R of every WG and W of the target vs variables; NM bytes on the top axis)
-and `p1_bars.png` (R of every WG at the smallest and largest size). No network, no exes.
+`p1_lines.pdf` (R of every WG and W of the target vs the NM size of the target)
+and `p1_bars.pdf` (R of every WG at the smallest and largest size). No network, no exes.
 
 Size budget: `python p1_publisher_size.py experiments/p1_budget.yaml` runs the same publisher
 with `budget: true` (`wcet_scale` multiplies every WCET, 1 = as p1.yaml). The line chart gets
@@ -208,8 +208,30 @@ python denzler.py experiments/denzler.yaml               # -> results/denzler/
 python denzler.py experiments/denzler.yaml --plot-only
 ```
 
-Writes `denzler_results.csv`, `denzler_static2021.png` and `denzler_sizes.png`: their upper
+Writes `denzler_results.csv` and `denzler.pdf` (one Int32; the 2022 sizes are only in the CSV): their upper
 bound, our bound and their measurement, each split into publisher, network and subscriber.
+
+**Scaling studies.** One fixed topology (3 switches in a line; publishers 1-3 on switch -1,
+4-6 on switch -2, publisher 7 and subscribers 8, 9 on switch -3), all WGs AVB, 100 seeds.
+`experiments/scaling_data.yaml`: every seed draws a system (WGs per publisher, periods, types,
+WCETs from `scenario.yaml`), then every WG gets one more variable per step until the MTU.
+`experiments/scaling_count.yaml`: transactions with the same data (8 Float) are added one at a
+time, round robin over the publishers and in turn over the two subscribers. Per step: the
+utilization of every node, R^p, and (exes, until the first deadline miss) R^N, J', R^s and R of
+every transaction. Limits per seed: publisher utilization >= 1, subscriber utilization >= 1,
+first deadline miss (R^p, AVB, J', R^s or end-to-end R > T).
+
+```
+python scaling_study.py experiments/scaling_data.yaml --jobs 4      # -> results/scaling_data/
+python scaling_study.py experiments/scaling_count.yaml --jobs 4
+python scaling_study.py experiments/scaling_count.yaml --resume     # continue after a stop
+python scaling_study.py experiments/scaling_count.yaml --plot-only
+```
+
+Writes `<name>_limits.csv` (per seed), `_steps.csv` (per step), `_wgs.csv` (per transaction),
+`_nodes.csv` (per node), and `_survival.pdf` (share of systems within each limit),
+`_growth.pdf` (utilizations, R/T and mean R^p, R^N, R^s, R; median and 25-75 %),
+`_limits.pdf` (where each limit is crossed; which comes first), `_size.pdf` (data mode).
 
 ## Generating a system
 

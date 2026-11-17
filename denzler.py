@@ -19,8 +19,7 @@ bound in the papers ("HW-dependent") and is filled with their measured value.
 
 Writes into --out (default results/denzler):
     denzler_results.csv      per case: frame, our R^p, R^min, R^N, J', R^s, R and their values
-    denzler_static2021.png   three stacked bars: their bound, our bound, their measurement
-    denzler_sizes.png        the same per message size (their measurement: medians)
+    denzler.pdf              one Int32: their bound, their measurement and our bound
 """
 from __future__ import annotations
 
@@ -46,8 +45,6 @@ from system import _parse_system
 
 PARTS = [("pub", "Publisher"), ("net", "Network"), ("sub", "Subscriber")]
 COLOR = {"pub": ps.SLOT[0], "net": ps.SLOT[1], "sub": ps.SLOT[2]}
-SOURCES = [("bound", "Upper bound [Denzler]\n(WCET analysis)", "///"), ("ours", "Our bound\n(our WCET model)", None),
-           ("measured", "Measured [Denzler]", "...")]
 
 
 # --------------------------------------------------------------------- model
@@ -185,70 +182,118 @@ def write_rows(rows: list[dict], path: str) -> None:
 
 
 # --------------------------------------------------------------------- plots
+# Paper style: Times, no title, PDF. The y-axis is broken so that the small network part stays
+# visible next to the ~6 ms (2021) and ~16 ms (2022) bounds of Denzler et al.
 
-def _stack(ax, x, r, src, hatch, width, label_parts=False):
+SOURCES = [("bound", "Upper bound\n(Denzler et al.)", "////"), ("ours", "Our bound", None),
+           ("measured", "Measured\n(Denzler et al.)", "....")]
+
+
+def _paper_style():
+    plt.rcParams.update({
+        "font.family": "serif",
+        "font.serif": ["Times New Roman", "Liberation Serif", "TeX Gyre Termes", "Times", "DejaVu Serif"],
+        "mathtext.fontset": "stix",
+        "font.size": 8, "axes.labelsize": 8, "xtick.labelsize": 7.5, "ytick.labelsize": 7.5,
+        "legend.fontsize": 7.5,
+        "text.color": "#000000", "axes.labelcolor": "#000000", "xtick.color": "#000000",
+        "ytick.color": "#000000", "axes.edgecolor": "#000000", "axes.linewidth": 0.6,
+        "axes.spines.top": False, "axes.spines.right": False,
+        "axes.grid": True, "axes.grid.axis": "y", "grid.color": "#dddddd", "grid.linewidth": 0.5,
+        "axes.axisbelow": True,
+        "xtick.direction": "in", "ytick.direction": "in",
+        "hatch.color": "#ffffff", "hatch.linewidth": 0.5,
+        "legend.frameon": False, "pdf.fonttype": 42, "ps.fonttype": 42,
+        "savefig.bbox": "tight", "savefig.pad_inches": 0.02,
+    })
+
+
+def _break_marks(top, low, ratio, d=0.012):
+    """Diagonal marks where the y-axis is broken (top panel above, low panel below)."""
+    k = ratio[1] / ratio[0]
+    kw = dict(color="#000000", linewidth=0.6, clip_on=False)
+    top.plot([-d, d], [-d * k, d * k], transform=top.transAxes, **kw)
+    low.plot([-d, d], [1 - d, 1 + d], transform=low.transAxes, **kw)
+
+
+def _hatch_kw(color: str) -> dict:
+    """Hatch colour on any matplotlib: `hatchcolor` exists from 3.10; before, the hatch takes the
+    edge colour (the bars have linewidth 0, so the edge itself stays invisible)."""
+    from matplotlib.patches import Patch
+    return {"hatchcolor": color} if hasattr(Patch, "set_hatchcolor") else {"edgecolor": color}
+
+
+def _stack(axes, x, r, src, hatch, width, label_parts=False):
+    """One stacked bar (publisher, network, subscriber) drawn in every given panel; no borders,
+    so that thin parts are not covered."""
     bottom = 0.0
     for key, name in PARTS:
         h = r[f"{src}_{key}"]
-        ax.bar(x, h, bottom=bottom, width=width, color=COLOR[key], edgecolor=ps.SURFACE, linewidth=0.8,
-               hatch=hatch, label=name if label_parts else None)
+        for j, ax in enumerate(axes):
+            ax.bar(x, h, bottom=bottom, width=width, color=COLOR[key], linewidth=0, hatch=hatch,
+                   **_hatch_kw("#ffffff"), label=name if (label_parts and j == len(axes) - 1) else None)
         bottom += h
-    if src == "ours" and r.get("ours_e2e_min") is not None:     # range of your WCET model
-        ax.errorbar(x, bottom, yerr=[[bottom - r["ours_e2e_min"]], [r["ours_e2e_max"] - bottom]],
-                    color=ps.TEXT, capsize=3, linewidth=1, zorder=5)
+    if src == "ours" and r.get("ours_e2e_min") is not None:     # range of the WCET model
+        for ax in axes:
+            ax.errorbar(x, bottom, yerr=[[bottom - r["ours_e2e_min"]], [r["ours_e2e_max"] - bottom]],
+                        color="#000000", capsize=2.5, linewidth=0.8, capthick=0.8, zorder=5)
     return bottom
 
 
-def static2021(rows: list[dict], path: str) -> str:
+def _parts_text(r, src):
+    return "\n".join(f"{n}: {r[f'{src}_{k}']:.2f}" for k, n in PARTS)
+
+
+def _e2e_line(ax, x, w, m, label=None):
+    ax.plot([x - w / 2 - 0.05, x + w / 2 + 0.05], [m, m], color="#000000", linewidth=0.9,
+            linestyle=(0, (3, 1.5)), zorder=6, label=label)
+
+
+def combined(rows: list[dict], path: str) -> str:
+    """One Int32 (2021): their upper bound, their measurement and our bound (right), each split
+    into publisher, network and subscriber; broken y-axis for their ~6 ms bound."""
     r = next(x for x in rows if x["study"] == "static2021")
-    fig, ax = plt.subplots(figsize=(6.4, 3.8))
-    plt.rcParams["hatch.color"] = ps.SURFACE
-    top = 0
-    for i, (src, name, hatch) in enumerate(SOURCES):
-        total = _stack(ax, i, r, src, hatch, 0.5, label_parts=(i == 1))
-        top = max(top, total)
-        parts = "\n".join(f"{n}: {r[f'{src}_{k}']:.2f}" for k, n in PARTS)
-        rng = (f"\n(model range {r['ours_e2e_min']:,.2f}–{r['ours_e2e_max']:,.2f})" if src == "ours" else "")
-        ax.text(i + 0.28, total, f"{total:,.2f} µs{rng}\n" + parts, fontsize=7, color=ps.TEXT, va="bottom")
-    m = r["measured_e2e"]
-    ax.plot([1.72, 2.28], [m, m], color=ps.TEXT, linewidth=1.4)
-    ax.annotate(f"measured end-to-end max: {m:.2f}\n(the parts do not peak together)", (1.8, m),
-                xytext=(-30, 40), textcoords="offset points", ha="right", fontsize=7, color=ps.TEXT,
-                arrowprops=dict(arrowstyle="-", color=ps.TEXT_2, linewidth=0.6))
-    ax.set_xticks(range(3), [n for _, n, _ in SOURCES])
-    ax.set_xlim(-0.5, 2.95)
-    ax.set_ylim(0, top * 1.3)
-    ax.set_ylabel("end-to-end (µs)")
-    ax.grid(axis="x", visible=False)
-    ax.set_title("One Int32 value, point-to-point, no contention [Denzler et al. 2021]", loc="left", fontsize=9)
-    ax.legend(loc="upper center", ncols=3, fontsize=7, bbox_to_anchor=(0.5, -0.1))
-    return ps.save(fig, path)
+    order = [SOURCES[0], SOURCES[2], SOURCES[1]]          # bound, measured, ours
+    ratio = [1, 2.6]
+    fig = plt.figure(figsize=(3.5, 3.1))
+    gs = fig.add_gridspec(2, 1, height_ratios=ratio, hspace=0.08)
+    top = fig.add_subplot(gs[0])
+    low = fig.add_subplot(gs[1], sharex=top)
+    top.spines["bottom"].set_visible(False)
+    top.tick_params(axis="x", bottom=False, labelbottom=False)
+    _break_marks(top, low, ratio)
 
+    w = 0.5
+    tot = {src: _stack((top, low), i, r, src, hatch, w, label_parts=(src == "ours"))
+           for i, (src, _, hatch) in enumerate(order)}
+    xm, xo = 1, 2
+    for ax in (top, low):
+        _e2e_line(ax, xm, w, r["measured_e2e"], label="Measured end-to-end max." if ax is low else None)
 
-def sizes(rows: list[dict], path: str) -> str | None:
-    rs = sorted((x for x in rows if x["study"] == "sizes2022"), key=lambda x: x["values"])
-    if not rs:
-        return None
-    fig, ax = plt.subplots(figsize=(7.2, 3.8))
-    plt.rcParams["hatch.color"] = ps.SURFACE
-    w = 0.26
-    for g, r in enumerate(rs):
-        for i, (src, name, hatch) in enumerate(SOURCES):
-            x = g + (i - 1) * (w + 0.02)
-            total = _stack(ax, x, r, src, hatch, w, label_parts=(g == 0 and i == 1))
-            ax.text(x, total, f"{total:,.0f}", ha="center", va="bottom", fontsize=6.5, color=ps.TEXT_2)
-        m = r["measured_e2e"]
-        x = g + (w + 0.02)
-        ax.plot([x - w / 2, x + w / 2], [m, m], color=ps.TEXT, linewidth=1.2)
-    for _, name, hatch in SOURCES:                      # legend entries for the three sources
-        ax.bar(0, 0, color=ps.TEXT_2, hatch=hatch, edgecolor=ps.SURFACE, label=name.replace("\n", " "))
-    ax.plot([], [], color=ps.TEXT, linewidth=1.2, label="measured end-to-end (median)")
-    ax.set_xticks(range(len(rs)), [f"{int(r['bits'])} bit\n(frame {int(r['frame_bytes'])} B)" for r in rs])
-    ax.set_ylabel("end-to-end (µs)")
-    ax.grid(axis="x", visible=False)
-    ax.set_title("Message size, point-to-point, no contention [Denzler et al. 2022; measured: medians]",
-                 loc="left", fontsize=9)
-    ax.legend(loc="upper center", ncols=4, fontsize=7, bbox_to_anchor=(0.5, -0.17))
+    lo_top = max(r["ours_e2e_max"], tot["measured"]) * 1.62
+    low.set_ylim(0, lo_top)
+    top.set_ylim(tot["bound"] - 0.36 * lo_top / ratio[1], tot["bound"] + 0.30 * lo_top / ratio[1])
+    pad = 0.02 * lo_top
+    top.text(w / 2 + 0.06, tot["bound"], f"Total: {tot['bound']:.2f}\n" + _parts_text(r, "bound"),
+             fontsize=6.5, va="center", ha="left", linespacing=1.15)
+    low.text(xm, tot["measured"] + pad, f"Total: {tot['measured']:.2f}\n" + _parts_text(r, "measured"),
+             fontsize=6.5, va="bottom", ha="center", linespacing=1.15)
+    low.text(xm - w / 2 - 0.06, r["measured_e2e"], f"{r['measured_e2e']:.2f} ", fontsize=6.5,
+             va="center", ha="right")
+    low.text(xo, r["ours_e2e_max"] + pad,
+             f"Total: {tot['ours']:.2f}\n(range {r['ours_e2e_min']:.2f}–{r['ours_e2e_max']:.2f})\n"
+             + _parts_text(r, "ours"), fontsize=6.5, va="bottom", ha="center", linespacing=1.15)
+
+    low.set_xticks(range(3), [n for _, n, _ in order])
+    low.set_xlim(-0.45, 2.55)
+    for ax in (top, low):
+        ax.grid(axis="y", color="#dddddd", linewidth=0.5)
+        ax.grid(axis="x", visible=False)
+    fig.supylabel("End-to-end latency (µs)", fontsize=8, x=0.0)
+    h, l = low.get_legend_handles_labels()
+    idx = [l.index(n) for _, n in PARTS] + [l.index("Measured end-to-end max.")]
+    low.legend([h[i] for i in idx], [l[i] for i in idx], loc="upper center", ncols=2,
+               bbox_to_anchor=(0.5, -0.22), handlelength=1.6, columnspacing=1.5, labelspacing=0.3)
     return ps.save(fig, path)
 
 
@@ -281,9 +326,8 @@ def main(argv: list[str] | None = None) -> int:
             raise SystemExit("no results (see the logs)")
         write_rows(rows, csv_path)
     rows = read_rows(csv_path)
-    ps.setup()
-    figs = [static2021(rows, os.path.join(out, "denzler_static2021.png")),
-            sizes(rows, os.path.join(out, "denzler_sizes.png"))]
+    _paper_style()
+    figs = [combined(rows, os.path.join(out, "denzler.pdf"))]
 
     ours_head = "our bound (R^p + R^N + W')"
     print(f"\n  {'case':>14} {'bits':>5} {'frame':>5}   {'their bound (P + N + S)':>30}   "

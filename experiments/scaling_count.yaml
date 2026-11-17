@@ -1,0 +1,31 @@
+# Scaling study 2: more transactions, each with the same data. Where do publisher
+# utilization, subscriber utilization and the deadlines reach their limit?
+#   python scaling_study.py experiments/scaling_count.yaml [--jobs 4] [--resume]
+#   python scaling_study.py experiments/scaling_count.yaml --plot-only
+#
+# Transactions (WGs) are added one at a time: transaction k on publisher (k - 1) mod 7 + 1
+# (round robin) and to subscriber (k - 1) mod 2 (in turn). Every transaction carries the same
+# data (`wg` below); its period and WCET coefficients are drawn per seed from the scenario's
+# ranges. Priorities: shorter period first. All AVB (no ST, no best-effort).
+# The exes run at every step until the first deadline miss; after that only the utilizations
+# are computed, until both utilization limits are crossed or max_wgs is reached.
+
+name: scaling_count
+mode: count
+scenario: ../scenario.yaml
+seeds: [1, 100]
+
+topology:
+  links: [[1, -1], [2, -1], [3, -1], [-1, -2], [4, -2], [5, -2], [6, -2], [-2, -3], [7, -3], [8, -3], [9, -3]]
+  publishers: [1, 2, 3, 4, 5, 6, 7]
+  subscribers: [8, 9]
+
+wg: {type: Float, v: 8, dsms: 1}    # the data of every transaction
+start_wgs: 1
+step: 1
+max_wgs: 1000                       # last step; publisher utilization reaches 1 late (only
+                                    # utilizations are computed after the first deadline miss)
+
+max_cpu_utilization: 1.0
+deadline_factor: 1                  # end-to-end deadline D = deadline_factor * T
+x_scale: log                        # plots: log x-axis (the publisher limit lies far from the others)

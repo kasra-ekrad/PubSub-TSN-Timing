@@ -25,5 +25,5 @@ def test_denzler(tmp_path):
         assert r["ours_e2e_min"] < r["ours_e2e"] < r["ours_e2e_max"]
         assert r["ours_W"] != r["bound_pub"]              # our WCET model, not the paper's
     assert [rows[f"sizes2022_v{v}"]["frame_bytes"] for v in range(1, 5)] == [77, 81, 85, 89]          # 77 B for 32 bit, as in the paper
-    for f in ("denzler_static2021.png", "denzler_sizes.png"):
+    for f in ("denzler.pdf",):
         assert (out / f).is_file()

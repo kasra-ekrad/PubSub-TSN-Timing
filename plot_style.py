@@ -31,6 +31,28 @@ def setup():
     })
 
 
+def paper():
+    """Paper style: Times, black text, light y-grid, inward ticks, fonts for a one-column figure
+    (3.5 in wide), fonts embedded in the PDF."""
+    plt.rcParams.update({
+        "font.family": "serif",
+        "font.serif": ["Times New Roman", "Liberation Serif", "TeX Gyre Termes", "Times", "DejaVu Serif"],
+        "mathtext.fontset": "stix",
+        "font.size": 8, "axes.labelsize": 8, "xtick.labelsize": 7.5, "ytick.labelsize": 7.5,
+        "legend.fontsize": 7.5, "axes.titlesize": 8,
+        "figure.facecolor": SURFACE, "axes.facecolor": SURFACE, "savefig.facecolor": SURFACE,
+        "text.color": "#000000", "axes.labelcolor": "#000000", "xtick.color": "#000000",
+        "ytick.color": "#000000", "axes.edgecolor": "#000000", "axes.linewidth": 0.6,
+        "axes.spines.top": False, "axes.spines.right": False,
+        "axes.grid": True, "axes.grid.axis": "y", "grid.color": "#dddddd", "grid.linewidth": 0.5,
+        "axes.axisbelow": True,
+        "xtick.direction": "in", "ytick.direction": "in",
+        "hatch.color": "#ffffff", "hatch.linewidth": 0.5,
+        "legend.frameon": False, "pdf.fonttype": 42, "ps.fonttype": 42,
+        "savefig.bbox": "tight", "savefig.pad_inches": 0.02,
+    })
+
+
 def save(fig, path):
     fig.savefig(path)
     plt.close(fig)

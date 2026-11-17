@@ -25,7 +25,7 @@ def test_p1_shapes(tmp_path):
                 assert abs(d(g, v) - dW(v)) < 1e-9
     assert all(r["status"] == "ok" for r in rows)
     assert p1.main(["experiments/p1.yaml", "--out", str(tmp_path)]) == 0
-    for f in ("p1_results.csv", "p1_lines.png", "p1_bars.png"):
+    for f in ("p1_results.csv", "p1_lines.pdf", "p1_bars.pdf"):
         assert (tmp_path / f).is_file()
 
 
