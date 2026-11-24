@@ -35,9 +35,11 @@ Writes into results/<name>/:
     <name>_steps.csv             one row per seed and step: max utilizations, response times
     <name>_wgs.csv               one row per seed, step and transaction: W, W', R^p, R^N, J', R^s, R
     <name>_nodes.csv             one row per seed, step and node: utilization
-    <name>_survival.pdf          share of systems within each limit, against x
-    <name>_growth.pdf            utilizations and response times against x (median, 25-75 %)
-    <name>_limits.pdf            where each limit is crossed (all seeds) and which comes first
+    <name>_survival.pdf          share of systems that pass each check, against x
+    <name>_growth.pdf            busiest publisher / subscriber utilization and the average
+                                 response time per transaction against x (median, 25-75 %)
+    <name>_limits.pdf            utilization of the busiest publisher and subscriber at the last
+                                 step where every check passes (all seeds)
     <name>_size.pdf              (data mode) the limit against the number of WGs in the system
 """
 from __future__ import annotations
@@ -71,8 +73,10 @@ from subscriber_rta import analyse_all
 from system import ConfigError, _parse_system
 
 LIMITS = ("pub_util", "sub_util", "deadline")
-LIMIT_NAME = {"pub_util": "Publisher utilization < 1", "sub_util": "Subscriber utilization < 1",
-              "deadline": "All deadlines met", "all": "All three"}
+LIMIT_NAME = {"pub_util": "Every publisher: utilization < 1",
+              "sub_util": "Every subscriber: utilization < 1",
+              "deadline": "Every transaction: deadline met ($R^p$, $R^s$, $R \\leq T$)",
+              "all": "All three checks"}
 V_CAP = 2000          # longest list of variable types drawn per WG (data mode)
 
 
@@ -492,33 +496,40 @@ def _ok_at(r: dict, crit: str, x: int):
 
 
 def survival(sp: dict, res: list[dict], path: str) -> str:
+    """Share of the systems that pass each check, against x. The 'all three' curve is drawn
+    only where it differs from the deadline curve."""
     xs = sorted({s["x"] for r in res for s in r["steps"]})
     fig, ax = plt.subplots(figsize=(3.5, 2.5))
+    curves = {}
     for crit in ("pub_util", "sub_util", "deadline", "all"):
-        ys, xx = [], []
+        xx, ys = [], []
         for x in xs:
             known = [v for v in (_ok_at(r, crit, x) for r in res) if v is not None]
             if len(known) >= max(1, len(res) // 10):
                 xx.append(x)
                 ys.append(100 * sum(known) / len(known))
-        ax.plot(xx, ys, color=COLOR[crit], linewidth=1.4 if crit == "all" else 1.2,
+        curves[crit] = (xx, ys)
+    for crit in ("pub_util", "sub_util", "deadline", "all"):
+        if crit == "all" and curves["all"] == curves["deadline"]:
+            continue                                      # the deadline check always fails first
+        xx, ys = curves[crit]
+        ax.plot(xx, ys, color=COLOR[crit], linewidth=1.2,
                 linestyle=(0, (4, 2)) if crit == "all" else "-", label=LIMIT_NAME[crit])
     if sp["mode"] == "data":                              # seeds stop when a WG reaches the MTU
-        xx = [x for x in xs]
-        ax.plot(xx, [100 * sum(1 for r in res if r.get("last_x") is not None and r["last_x"] >= x) / len(res)
-                     for x in xx], color="#888888", linewidth=1, linestyle=(0, (1, 1.5)),
-                label="Every NM fits the MTU")
+        ax.plot(xs, [100 * sum(1 for r in res if r.get("last_x") is not None and r["last_x"] >= x) / len(res)
+                     for x in xs], color="#888888", linewidth=1, linestyle=(0, (1, 1.5)),
+                label="Every NetworkMessage fits in one frame (MTU)")
     brk = [min(v for v in r["limits"].values() if v is not None) for r in res
            if any(v is not None for v in r["limits"].values())]
     if brk:
         med = statistics.median(brk)
         ax.axvline(med, color="#555555", linewidth=0.6, linestyle=(0, (2, 2)))
-        ax.text(med, 50, f" median {med:g}", fontsize=6.5, va="center")
+        ax.text(med, 86, f" half of the systems\n fail a check at {med:g}", fontsize=6.5, va="center")
     ax.set_ylim(0, 104)
     _xscale(sp, ax)
     ax.set_xlabel(XLABEL[sp["mode"]])
-    ax.set_ylabel("Systems within the limit (%)")
-    ax.legend(loc="upper center", bbox_to_anchor=(0.5, -0.24), ncols=2, columnspacing=1.0, handlelength=2.2)
+    ax.set_ylabel("Systems passing the check (%)")
+    ax.legend(loc="upper left", bbox_to_anchor=(-0.02, -0.22), ncols=1, handlelength=2.2, labelspacing=0.3)
     return ps.save(fig, path)
 
 
@@ -539,29 +550,26 @@ def _band(ax, res, key, color, label, min_share=0.25, scale=1.0):
 
 
 def growth(sp: dict, res: list[dict], path: str) -> str:
-    fig, (a1, a2, a3) = plt.subplots(3, 1, figsize=(3.5, 5.6), sharex=True,
-                                     gridspec_kw={"hspace": 0.12, "height_ratios": [1, 1, 1.2]})
-    _band(a1, res, "U_pub_max", ps.SLOT[0], "Publisher (highest)", min_share=0.1)
-    _band(a1, res, "U_sub_max", ps.SLOT[1], "Subscriber (highest)", min_share=0.1)
+    """(top) utilization of the busiest publisher and subscriber of each system; (bottom) the
+    average response time per transaction of each system, per part of the chain. Both: median
+    over the systems, band = 25-75 %. The worst R/T per system stays in the steps CSV."""
+    fig, (a1, a2) = plt.subplots(2, 1, figsize=(3.5, 4.2), sharex=True,
+                                 gridspec_kw={"hspace": 0.12, "height_ratios": [1, 1.2]})
+    _band(a1, res, "U_pub_max", ps.SLOT[0], "Busiest publisher", min_share=0.1)
+    _band(a1, res, "U_sub_max", ps.SLOT[1], "Busiest subscriber", min_share=0.1)
     a1.axhline(1, color="#000000", linewidth=0.8)
     a1.set_ylim(0, 1.6)                                  # beyond: no longer schedulable
     a1.set_ylabel("Utilization")
     a1.legend(loc="upper left", fontsize=7)
-    for key, col, name in (("Rp_T_max", ps.SLOT[0], "$R^p/T$"), ("Rs_T_max", ps.SLOT[1], "$R^s/T$"),
-                           ("R_T_max", "#000000", "$R/T$ (end-to-end)")):
-        _band(a2, res, key, col, name)
-    a2.axhline(1, color="#000000", linewidth=0.8, linestyle=(0, (2, 2)))
-    a2.set_ylabel("Highest $R/T$")
-    a2.legend(loc="best", fontsize=7)
     for key, col, name in (("Rp_mean", ps.SLOT[0], "$R^p$"), ("RN_mean", ps.SLOT[3], "$R^N$"),
                            ("Rs_mean", ps.SLOT[1], "$R^s$"), ("R_mean", "#000000", "$R$ (end-to-end)")):
-        _band(a3, res, key, col, name)
-    a3.set_yscale("log")
-    a3.set_ylabel("Mean over transactions (µs)")
-    a3.set_xlabel(XLABEL[sp["mode"]])
-    _xscale(sp, a3)
-    a3.legend(loc="upper center", bbox_to_anchor=(0.5, -0.25), ncols=4, columnspacing=0.8, handlelength=1.6)
-    for a in (a1, a2, a3):
+        _band(a2, res, key, col, name)
+    a2.set_yscale("log")
+    a2.set_ylabel("Average response time\nper transaction (µs)")
+    a2.set_xlabel(XLABEL[sp["mode"]])
+    _xscale(sp, a2)
+    a2.legend(loc="upper center", bbox_to_anchor=(0.5, -0.25), ncols=4, columnspacing=0.8, handlelength=1.6)
+    for a in (a1, a2):
         a.grid(axis="x", visible=False)
     return ps.save(fig, path)
 
@@ -573,50 +581,22 @@ def _horizontal() -> dict:
 
 
 def limits_plot(sp: dict, res: list[dict], path: str) -> str:
-    """(a) where each limit is crossed, (b) the highest utilizations at the last step with
-    every limit met, (c) which limit comes first."""
-    fig, (a1, a2, a3) = plt.subplots(3, 1, figsize=(3.5, 4.6),
-                                     gridspec_kw={"height_ratios": [1.3, 0.9, 1], "hspace": 0.75})
-    box = dict(widths=0.5, patch_artist=True, showfliers=True, **_horizontal(),
-               medianprops={"color": "#000000", "linewidth": 1},
-               flierprops={"marker": ".", "markersize": 3, "markeredgecolor": "#555555"})
-    keys = ("pub_util", "sub_util", "deadline")
-    data = [[r["limits"][k] for r in res if r["limits"][k] is not None] or [float("nan")] for k in keys]
-    bp = a1.boxplot(data, **box)
-    for patch, k in zip(bp["boxes"], keys):
-        patch.set(facecolor=COLOR[k], alpha=0.6, linewidth=0.6)
-    a1.set_yticks(range(1, 4), [f"{n} ({sum(r['limits'][k] is not None for r in res)}/{len(res)})"
-                                for n, k in zip(("Pub. util.", "Sub. util.", "Deadline"), keys)])
-    a1.set_xlabel(XLABEL[sp["mode"]] + " at the first crossing")
-    _xscale(sp, a1)
-    oks = [last_ok(r) for r in res]
-    oks = [o for o in oks if o]
-    bp = a2.boxplot([[o["U_pub_max"] for o in oks] or [float("nan")],
-                     [o["U_sub_max"] for o in oks] or [float("nan")]], **box)
+    """Utilization of the busiest publisher and subscriber of each system at the last step at
+    which every check passes. Where each limit is crossed: the survival plot and the limits CSV."""
+    fig, ax = plt.subplots(figsize=(3.5, 1.5))
+    oks = [o for o in (last_ok(r) for r in res) if o]
+    bp = ax.boxplot([[o["U_pub_max"] for o in oks] or [float("nan")],
+                     [o["U_sub_max"] for o in oks] or [float("nan")]],
+                    widths=0.5, patch_artist=True, showfliers=True, **_horizontal(),
+                    medianprops={"color": "#000000", "linewidth": 1},
+                    flierprops={"marker": ".", "markersize": 3, "markeredgecolor": "#555555"})
     for patch, k in zip(bp["boxes"], ("pub_util", "sub_util")):
         patch.set(facecolor=COLOR[k], alpha=0.6, linewidth=0.6)
-    a2.set_yticks([1, 2], ["Publisher", "Subscriber"])
-    a2.set_xlim(0, 1.02)
-    a2.set_xlabel("Highest utilization at the last step with every limit met")
-    counts = {}
-    for r in res:
-        k = first_limit(r)
-        name = {"deadline": "Deadline miss first", "sub_util + deadline": "Sub. util. and deadline, same step",
-                "pub_util": "Pub. util. first", "sub_util": "Sub. util. first", "none": "No limit reached"}.get(k, k)
-        counts[name] = counts.get(name, 0) + 1
-    items = sorted(counts.items(), key=lambda kv: -kv[1])
-    a3.barh(range(len(items)), [v for _, v in items], color="#888888", height=0.55, linewidth=0)
-    for i, (_, v) in enumerate(items):
-        a3.text(v, i, f" {v}", va="center", fontsize=7)
-    a3.set_yticks(range(len(items)), [k for k, _ in items])
-    a3.invert_yaxis()
-    a3.set_xlim(0, len(res) * 1.12)
-    a3.set_xlabel("Systems (which limit is reached first)")
-    for a in (a1, a2, a3):
-        a.grid(axis="y", visible=False)
-        a.grid(axis="x", visible=True)
-    for a, tag in ((a1, "(a)"), (a2, "(b)"), (a3, "(c)")):
-        a.text(-0.02, 1.04, tag, transform=a.transAxes, fontsize=8, ha="right", va="bottom")
+    ax.set_yticks([1, 2], ["Busiest\npublisher", "Busiest\nsubscriber"])
+    ax.set_xlim(0, 1.02)
+    ax.set_xlabel(f"Utilization at the last step where every check passes")
+    ax.grid(axis="y", visible=False)
+    ax.grid(axis="x", visible=True)
     return ps.save(fig, path)
 
 
@@ -633,9 +613,10 @@ def size_plot(sp: dict, res: list[dict], path: str) -> str | None:
     for n, b in pts:
         by.setdefault(n, []).append(b)
     ns = sorted(by)
-    ax.plot(ns, [statistics.median(by[n]) for n in ns], color="#000000", linewidth=1, label="median")
-    ax.set_xlabel("WGs in the system")
-    ax.set_ylabel("Variables per WG\nat the first limit")
+    ax.plot(ns, [statistics.median(by[n]) for n in ns], color="#000000", linewidth=1,
+            label="median over the systems")
+    ax.set_xlabel("Number of WGs in the system")
+    ax.set_ylabel("Variables per WG when\nthe system first fails a check")
     ax.legend(loc="upper right")
     ax.grid(axis="x", visible=False)
     return ps.save(fig, path)

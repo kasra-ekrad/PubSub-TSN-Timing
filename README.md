@@ -229,9 +229,11 @@ python scaling_study.py experiments/scaling_count.yaml --plot-only
 ```
 
 Writes `<name>_limits.csv` (per seed), `_steps.csv` (per step), `_wgs.csv` (per transaction),
-`_nodes.csv` (per node), and `_survival.pdf` (share of systems within each limit),
-`_growth.pdf` (utilizations, R/T and mean R^p, R^N, R^s, R; median and 25-75 %),
-`_limits.pdf` (where each limit is crossed; which comes first), `_size.pdf` (data mode).
+`_nodes.csv` (per node), and `_survival.pdf` (share of the systems that pass each check),
+`_growth.pdf` (utilization of the busiest publisher and subscriber; average R^p, R^N, R^s, R
+per transaction; median over the systems and 25-75 %),
+`_limits.pdf` (utilization of the busiest publisher and subscriber at the last step where every
+check passes), `_size.pdf` (data mode).
 
 ## Generating a system
 
